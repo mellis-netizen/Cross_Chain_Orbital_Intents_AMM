@@ -1,0 +1,85 @@
+
+# Rust build artifacts
+/target/
+*/target/
+**/target/
+
+# Cargo lock files (for libraries, applications should keep them)
+Cargo.lock
+
+# Node modules (if any JavaScript components)
+node_modules/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Environment and secrets
+.env
+.env.local
+.env.production
+*.pem
+*.key
+secrets/
+
+# Deployment artifacts (keep only documentation)
+/deployments/*/contracts.json
+/deployments/*/deployment_result.json
+/deployments/*/solver_config.json
+/deployments/*/dashboard.html
+/deployments/*/transactions.txt
+/deployments/*/monitoring/
+!/deployments/*/README.md
+
+# Demo output files
+/demo/intent_*.json
+/demo/quote_*.json
+/demo/execution_*.json
+/demo/metrics.json
+/demo/dashboard.html
+
+# Logs and temporary files
+*.log
+logs/
+tmp/
+temp/
+
+# Claude Flow generated files
+.claude/settings.local.json
+.mcp.json
+claude-flow.config.json
+.swarm/
+.hive-mind/
+.claude-flow/
+memory/
+coordination/
+memory/claude-flow-data.json
+memory/sessions/*
+!memory/sessions/README.md
+memory/agents/*
+!memory/agents/README.md
+coordination/memory_bank/*
+coordination/subtasks/*
+coordination/orchestration/*
+*.db
+*.db-journal
+*.db-wal
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+claude-flow
+# Removed Windows wrapper files per user request
+hive-mind-prompt-*.txt

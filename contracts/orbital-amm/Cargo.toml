@@ -1,0 +1,18 @@
+[package]
+name = "orbital-amm"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+stylus-sdk.workspace = true
+alloy-primitives.workspace = true
+alloy-sol-types.workspace = true
+hex.workspace = true
+
+[features]
+export-abi = ["stylus-sdk/export-abi"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]

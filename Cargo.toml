@@ -1,0 +1,101 @@
+[package]
+name = "intents-system"
+version = "1.0.0"
+edition = "2021"
+authors = ["Rust Intents Team"]
+license = "MIT"
+description = "Cross-chain intent execution system with solver networks"
+repository = "https://github.com/rust-intents/rust-intents"
+keywords = ["blockchain", "cross-chain", "defi", "intents", "solver"]
+categories = ["cryptography", "web-programming"]
+
+[[bin]]
+name = "deploy_holesky"
+path = "src/bin/deploy_holesky.rs"
+
+[[bin]]
+name = "demo_runner"
+path = "src/bin/demo_runner.rs"
+
+[workspace]
+members = [
+    ".",
+    "core/engine",
+    "core/solver", 
+    "core/bridge",
+    "contracts/intents",
+    "contracts/orbital-amm"
+]
+
+[workspace.package]
+version = "1.0.0"
+edition = "2021"
+authors = ["Rust Intents Team"]
+license = "MIT"
+
+[workspace.dependencies]
+# Core async runtime
+tokio = { version = "1.40", features = ["full"] }
+async-trait = "0.1"
+
+# Ethereum and blockchain
+ethers = "2.0"
+alloy = { version = "0.3", features = ["full"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+eyre = "0.6"
+
+# Logging
+tracing = "0.1"
+env_logger = "0.11"
+
+# Utilities
+hex = "0.4"
+clap = "2.34"
+uuid = { version = "1.0", features = ["v4"] }
+
+# Cryptography
+sha2 = "0.10"
+rand = "0.8"
+
+[dependencies]
+# Core dependencies
+tokio = { workspace = true }
+ethers = { workspace = true }
+eyre = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+hex = "0.4"
+env_logger = { workspace = true }
+
+# CLI dependencies
+clap = { workspace = true }
+
+# Internal dependencies
+intents-engine = { path = "core/engine" }
+intents-solver = { path = "core/solver" }
+intents-bridge = { path = "core/bridge" }
+
+[dev-dependencies]
+tokio-test = "0.4"
+
+[features]
+default = ["holesky-deployment"]
+holesky-deployment = []
+mainnet-deployment = []
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.dev]
+opt-level = 0
+debug = true

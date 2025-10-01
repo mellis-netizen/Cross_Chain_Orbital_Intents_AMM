@@ -1,0 +1,22 @@
+[package]
+name = "intents-solver"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+tokio.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+ethers.workspace = true
+alloy.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+hex.workspace = true
+intents-engine = { path = "../engine" }
+intents-bridge = { path = "../bridge" }
+sha2 = "0.10"
+rand = "0.8"
