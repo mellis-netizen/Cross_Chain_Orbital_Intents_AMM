@@ -1,0 +1,45 @@
+[package]
+name = "orbital-math"
+version = "0.1.0"
+edition = "2021"
+authors = ["Orbital AMM Team"]
+license = "MIT"
+description = "Mathematical primitives for N-dimensional Orbital AMM"
+
+[dependencies]
+# Core math
+num-traits = "0.2"
+num-bigint = "0.4"
+
+# Ethereum types
+ethers = { version = "2.0", default-features = false }
+alloy-primitives = "0.7"
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+
+# Optional features
+rayon = { version = "1.8", optional = true }  # Parallel computation
+
+[dev-dependencies]
+proptest = "1.4"
+criterion = "0.5"
+approx = "0.5"
+
+[features]
+default = []
+parallel = ["rayon"]
+std = []
+
+[[bench]]
+name = "orbital_benchmarks"
+harness = false
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

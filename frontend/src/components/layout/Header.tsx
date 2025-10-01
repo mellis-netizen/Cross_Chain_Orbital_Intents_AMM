@@ -11,6 +11,7 @@ import { truncateAddress } from '@/utils'
 import { cn } from '@/utils'
 
 const navigation = [
+  { name: 'Orbital AMM', href: '/orbital' },
   { name: 'Swap', href: '/swap' },
   { name: 'Intents', href: '/intents' },
   { name: 'Pools', href: '/pools' },

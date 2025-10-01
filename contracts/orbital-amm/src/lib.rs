@@ -1,20 +1,121 @@
 #![cfg_attr(not(feature = "export-abi"), no_std, no_main)]
 
 extern crate alloc;
+use alloc::vec::Vec;
 
-use stylus_sdk::{alloy_primitives::{U256, Address}, prelude::*, ArbResult};
+use stylus_sdk::{alloy_primitives::{U256, Address, FixedBytes}, prelude::*, ArbResult, storage::{StorageVec, StorageMap}};
 use alloy_sol_types::sol;
 
+// Import orbital math functionality
+mod orbital_math {
+    use super::*;
+    
+    pub fn verify_sphere_constraint(reserves: &[U256], radius_squared: U256, tolerance_bp: u32) -> bool {
+        let sum_of_squares: U256 = reserves.iter()
+            .map(|&r| r.saturating_mul(r))
+            .fold(U256::ZERO, |acc, sq| acc.saturating_add(sq));
+            
+        let tolerance = (radius_squared * U256::from(tolerance_bp)) / U256::from(10000);
+        let lower = radius_squared.saturating_sub(tolerance);
+        let upper = radius_squared.saturating_add(tolerance);
+        
+        sum_of_squares >= lower && sum_of_squares <= upper
+    }
+    
+    pub fn calculate_amount_out_sphere(
+        reserves: &[U256],
+        token_in: usize,
+        token_out: usize,
+        amount_in: U256,
+        radius_squared: U256,
+    ) -> Option<U256> {
+        if token_in >= reserves.len() || token_out >= reserves.len() || token_in == token_out {
+            return None;
+        }
+        
+        let new_reserve_in = reserves[token_in].checked_add(amount_in)?;
+        let new_reserve_in_squared = new_reserve_in.checked_mul(new_reserve_in)?;
+        
+        let mut sum_other_squares = U256::ZERO;
+        for (i, &r) in reserves.iter().enumerate() {
+            if i == token_out {
+                continue;
+            }
+            
+            let r_sq = if i == token_in {
+                new_reserve_in_squared
+            } else {
+                r.checked_mul(r)?
+            };
+            
+            sum_other_squares = sum_other_squares.checked_add(r_sq)?;
+        }
+        
+        let under_sqrt = radius_squared.checked_sub(sum_other_squares)?;
+        let new_reserve_out = sqrt_approximation(under_sqrt);
+        
+        reserves[token_out].checked_sub(new_reserve_out)
+    }
+    
+    fn sqrt_approximation(value: U256) -> U256 {
+        if value.is_zero() {
+            return U256::ZERO;
+        }
+        
+        let mut x = value;
+        let mut y = (value + U256::from(1)) / U256::from(2);
+        
+        // Newton's method iterations
+        for _ in 0..10 {
+            if y >= x {
+                break;
+            }
+            x = y;
+            y = (x + value / x) / U256::from(2);
+        }
+        
+        x
+    }
+    
+    pub fn calculate_toroidal_swap(
+        reserves: &[U256],
+        token_in: usize,
+        token_out: usize,
+        amount_in: U256,
+        radius_squared: U256,
+        concentrated_liquidity: U256,
+    ) -> Option<U256> {
+        // First attempt spherical swap
+        if let Some(amount_out) = calculate_amount_out_sphere(
+            reserves, token_in, token_out, amount_in, radius_squared
+        ) {
+            return Some(amount_out);
+        }
+        
+        // If spherical swap fails, use concentrated liquidity
+        let price_ratio = if reserves[token_out].is_zero() {
+            U256::from(1)
+        } else {
+            reserves[token_in] / reserves[token_out]
+        };
+        
+        let amount_out = (amount_in * U256::from(995)) / U256::from(1000); // 0.5% fee
+        let adjusted_amount = (amount_out * concentrated_liquidity) / U256::from(1_000_000); // Concentration factor
+        
+        Some(adjusted_amount)
+    }
+}
+
 sol! {
-    event PoolCreated(address indexed token0, address indexed token1, uint256 indexed poolId);
-    event LiquidityAdded(uint256 indexed poolId, address indexed provider, uint256 amount0, uint256 amount1);
-    event Swap(uint256 indexed poolId, address indexed trader, bool zeroForOne, uint256 amountIn, uint256 amountOut);
-    event OracleUpdate(uint256 indexed poolId, uint256 price0, uint256 price1, uint256 timestamp);
-    event PoolRebalanced(uint256 indexed poolId, uint256 newReserve0, uint256 newReserve1, uint256 timestamp);
-    event DynamicFeeUpdated(uint256 indexed poolId, uint256 oldFee, uint256 newFee, uint256 volatility);
-    event ArbitrageDetected(uint256 indexed poolId, uint256 priceDiff, uint256 timestamp);
-    event CommitmentCreated(bytes32 indexed commitHash, address indexed trader, uint256 timestamp);
-    event SwapRevealed(bytes32 indexed commitHash, uint256 indexed poolId, uint256 amountOut);
+    event OrbitalPoolCreated(uint256 indexed poolId, address[] tokens, uint256 radius);
+    event ToroidalSwap(uint256 indexed poolId, address indexed trader, uint256 tokenIn, uint256 tokenOut, uint256 amountIn, uint256 amountOut);
+    event ConcentratedLiquidityAdded(uint256 indexed poolId, address indexed provider, uint256[] amounts, uint256 tickLower, uint256 tickUpper);
+    event MultiTokenSwap(uint256 indexed poolId, address indexed trader, uint256[] path, uint256[] amounts);
+    event SphereConstraintValidated(uint256 indexed poolId, uint256 sumSquares, uint256 radiusSquared, bool valid);
+    event MEVProtectionActivated(uint256 indexed poolId, bytes32 commitHash, address indexed trader);
+    event TickCrossed(uint256 indexed poolId, uint256 tickIndex, uint256 liquidityDelta, bool entering);
+    event ImpermanentLossUpdated(uint256 indexed poolId, address indexed provider, int256 ilAmount);
+    event SuperellipseSwap(uint256 indexed poolId, uint256 tokenIn, uint256 tokenOut, uint256 uParameter, uint256 amountOut);
 }
 
 #[derive(SolidityError)]
@@ -26,8 +127,13 @@ pub enum OrbitalAMMError {
     SlippageExceeded(SlippageExceeded),
     InvalidCommitment(InvalidCommitment),
     CommitmentExpired(CommitmentExpired),
-    RebalanceThresholdNotMet(RebalanceThresholdNotMet),
-    ArbitrageLocked(ArbitrageLocked),
+    SphereConstraintViolated(SphereConstraintViolated),
+    InvalidTokenCount(InvalidTokenCount),
+    TickOutOfRange(TickOutOfRange),
+    ConcentratedLiquidityInsufficient(ConcentratedLiquidityInsufficient),
+    ToroidalSwapFailed(ToroidalSwapFailed),
+    MEVProtectionActive(MEVProtectionActive),
+    SuperellipseParameterInvalid(SuperellipseParameterInvalid),
 }
 
 sol! {
@@ -38,39 +144,41 @@ sol! {
     error SlippageExceeded();
     error InvalidCommitment();
     error CommitmentExpired();
-    error RebalanceThresholdNotMet();
-    error ArbitrageLocked();
+    error SphereConstraintViolated();
+    error InvalidTokenCount();
+    error TickOutOfRange();
+    error ConcentratedLiquidityInsufficient();
+    error ToroidalSwapFailed();
+    error MEVProtectionActive();
+    error SuperellipseParameterInvalid();
 }
 
 sol_storage! {
     #[entrypoint]
     pub struct OrbitalAMM {
-        mapping(uint256 => Pool) pools;
-        mapping(address => mapping(address => uint256)) pool_ids;
+        mapping(uint256 => OrbitalPool) pools;
         uint256 next_pool_id;
         address owner;
         mapping(uint256 => Oracle) oracles;
         uint256 fee_rate; // basis points
         mapping(uint256 => DynamicFeeState) dynamic_fees;
-        mapping(uint256 => RebalanceState) rebalance_states;
         mapping(bytes32 => Commitment) commitments;
-        mapping(uint256 => ArbitrageGuard) arbitrage_guards;
+        mapping(uint256 => ConcentratedLiquidityState) cl_states;
         uint256 commit_reveal_delay; // blocks
         uint256 twap_window; // seconds for TWAP calculation
+        mapping(uint256 => MEVProtection) mev_protection;
     }
 
-    pub struct Pool {
-        address token0;
-        address token1;
-        uint256 reserve0;
-        uint256 reserve1;
-        uint256 virtual_reserve0;
-        uint256 virtual_reserve1;
-        uint256 k_last; // Constant product invariant
-        uint256 cumulative_volume;
+    pub struct OrbitalPool {
+        address[] tokens; // N-dimensional token array
+        uint256[] reserves; // Current reserves for each token
+        uint256 radius_squared; // Sphere constraint: sum(r_i^2) = R^2
+        uint256 total_liquidity_shares;
+        uint256 concentrated_liquidity; // Total concentrated liquidity
         bool active;
-        uint256 total_liquidity_shares; // LP token tracking
-        uint256 rebalance_threshold; // % deviation trigger (basis points)
+        uint256 creation_block;
+        uint8 token_count; // Number of tokens in pool (3-1000)
+        uint256 superellipse_u; // u parameter for superellipse curves
     }
 
     pub struct Oracle {
@@ -94,12 +202,39 @@ sol_storage! {
         uint256 min_fee; // floor on dynamic fees
     }
 
-    pub struct RebalanceState {
-        uint256 last_rebalance;
-        uint256 rebalance_count;
-        uint256 target_ratio; // target ratio scaled by 10000
-        uint256 deviation; // current deviation from target
-        bool auto_rebalance_enabled;
+    pub struct ConcentratedLiquidityState {
+        mapping(uint256 => TickInfo) ticks; // tick_index => TickInfo
+        mapping(address => mapping(uint256 => LiquidityPosition)) positions; // provider => position_id => position
+        uint256 current_tick;
+        uint256 total_positions;
+        uint256 active_liquidity;
+        bool cl_enabled;
+    }
+    
+    pub struct TickInfo {
+        uint256 liquidity_gross; // Total liquidity at this tick
+        int256 liquidity_net; // Net liquidity change when crossing tick
+        uint256 fee_growth_outside; // Fee growth on the other side of tick
+        bool initialized;
+    }
+    
+    pub struct LiquidityPosition {
+        uint256 tick_lower;
+        uint256 tick_upper;
+        uint256 liquidity;
+        uint256 token_owed0;
+        uint256 token_owed1;
+        uint256 fee_growth_inside_last;
+        address owner;
+        bool active;
+    }
+    
+    pub struct MEVProtection {
+        bool commit_reveal_enabled;
+        mapping(bytes32 => bool) used_commits;
+        uint256 last_batch_block;
+        uint256 batch_size;
+        bool sandwitch_protection;
     }
 
     pub struct Commitment {
@@ -111,12 +246,11 @@ sol_storage! {
         uint256 pool_id;
     }
 
-    pub struct ArbitrageGuard {
-        uint256 last_trade_block;
-        uint256 last_price;
-        uint256 price_deviation_threshold; // basis points
-        uint256 cooldown_blocks;
-        bool locked;
+    pub struct ToroidalState {
+        bool toroidal_enabled;
+        uint256 interior_liquidity; // Spherical component
+        uint256 boundary_liquidity; // Circular component
+        uint256 transition_threshold; // When to switch between modes
     }
 }
 
@@ -133,8 +267,54 @@ impl OrbitalAMM {
         Ok(())
     }
 
-    /// Configure MEV protection parameters
-    /// - commit_reveal_delay: Blocks to wait between commit and reveal
+    /// Create a new N-dimensional orbital pool
+    /// - tokens: Array of token addresses (3-1000 tokens)
+    /// - initial_reserves: Initial reserves for each token
+    /// - radius_squared: Sphere constraint parameter
+    /// - superellipse_u: u parameter for superellipse curves (2.0 = sphere, >2 = flatter)
+    pub fn create_orbital_pool(
+        &mut self,
+        tokens: Vec<Address>,
+        initial_reserves: Vec<U256>,
+        radius_squared: U256,
+        superellipse_u: U256,
+    ) -> Result<U256, OrbitalAMMError> {
+        // Validate inputs
+        if tokens.len() < 3 || tokens.len() > 1000 {
+            return Err(OrbitalAMMError::InvalidTokenCount(InvalidTokenCount {}));
+        }
+        
+        if tokens.len() != initial_reserves.len() {
+            return Err(OrbitalAMMError::InvalidAmount(InvalidAmount {}));
+        }
+        
+        // Verify sphere constraint
+        let reserves_array: Vec<U256> = initial_reserves.clone();
+        if !orbital_math::verify_sphere_constraint(&reserves_array, radius_squared, 100) {
+            return Err(OrbitalAMMError::SphereConstraintViolated(SphereConstraintViolated {}));
+        }
+        
+        let pool_id = self.next_pool_id.get();
+        self.next_pool_id.set(pool_id + U256::from(1));
+        
+        // Create orbital pool
+        let mut pool = self.pools.setter(pool_id);
+        pool.tokens.set_len(tokens.len());
+        pool.reserves.set_len(initial_reserves.len());
+        
+        for (i, token) in tokens.iter().enumerate() {
+            pool.tokens.set(i, *token);
+        }
+        
+        for (i, reserve) in initial_reserves.iter().enumerate() {
+            pool.reserves.set(i, *reserve);
+        }
+        
+        pool.radius_squared.set(radius_squared);
+        pool.superellipse_u.set(superellipse_u);
+        pool.token_count.set(tokens.len() as u8);
+        pool.active.set(true);
+        pool.creation_block.set(U256::from(self.block_number()));\n        \n        evm::log(OrbitalPoolCreated {\n            poolId: pool_id,\n            tokens: tokens.clone(),\n            radius: radius_squared,\n        });\n        \n        Ok(pool_id)\n    }\n    \n    /// Execute a toroidal swap in N-dimensional space\n    /// - pool_id: Pool identifier\n    /// - token_in: Index of input token\n    /// - token_out: Index of output token\n    /// - amount_in: Amount of input token\n    /// - min_amount_out: Minimum acceptable output\n    pub fn toroidal_swap(\n        &mut self,\n        pool_id: U256,\n        token_in: U256,\n        token_out: U256,\n        amount_in: U256,\n        min_amount_out: U256,\n    ) -> Result<U256, OrbitalAMMError> {\n        let pool = self.pools.get(pool_id);\n        if !pool.active.get() {\n            return Err(OrbitalAMMError::PoolNotFound(PoolNotFound {}));\n        }\n        \n        let token_in_idx = token_in.as_usize();\n        let token_out_idx = token_out.as_usize();\n        \n        if token_in_idx >= pool.token_count.get() as usize || token_out_idx >= pool.token_count.get() as usize {\n            return Err(OrbitalAMMError::InvalidAmount(InvalidAmount {}));\n        }\n        \n        // Get current reserves\n        let mut reserves = Vec::new();\n        for i in 0..pool.token_count.get() as usize {\n            reserves.push(pool.reserves.get(i));\n        }\n        \n        // Calculate toroidal swap\n        let amount_out = orbital_math::calculate_toroidal_swap(\n            &reserves,\n            token_in_idx,\n            token_out_idx,\n            amount_in,\n            pool.radius_squared.get(),\n            pool.concentrated_liquidity.get(),\n        ).ok_or(OrbitalAMMError::ToroidalSwapFailed(ToroidalSwapFailed {}))?;\n        \n        if amount_out < min_amount_out {\n            return Err(OrbitalAMMError::SlippageExceeded(SlippageExceeded {}));\n        }\n        \n        // Update reserves\n        let mut pool_mut = self.pools.setter(pool_id);\n        let new_reserve_in = reserves[token_in_idx] + amount_in;\n        let new_reserve_out = reserves[token_out_idx] - amount_out;\n        \n        pool_mut.reserves.set(token_in_idx, new_reserve_in);\n        pool_mut.reserves.set(token_out_idx, new_reserve_out);\n        \n        // Verify sphere constraint after swap\n        reserves[token_in_idx] = new_reserve_in;\n        reserves[token_out_idx] = new_reserve_out;\n        \n        let constraint_valid = orbital_math::verify_sphere_constraint(\n            &reserves,\n            pool.radius_squared.get(),\n            100,\n        );\n        \n        evm::log(ToroidalSwap {\n            poolId: pool_id,\n            trader: msg::sender(),\n            tokenIn: token_in,\n            tokenOut: token_out,\n            amountIn: amount_in,\n            amountOut: amount_out,\n        });\n        \n        evm::log(SphereConstraintValidated {\n            poolId: pool_id,\n            sumSquares: reserves.iter().map(|&r| r * r).fold(U256::ZERO, |acc, sq| acc + sq),\n            radiusSquared: pool.radius_squared.get(),\n            valid: constraint_valid,\n        });\n        \n        Ok(amount_out)\n    }\n    \n    /// Add concentrated liquidity to a specific tick range\n    /// - pool_id: Pool identifier\n    /// - tick_lower: Lower tick boundary\n    /// - tick_upper: Upper tick boundary\n    /// - amounts: Amounts for each token in the pool\n    pub fn add_concentrated_liquidity(\n        &mut self,\n        pool_id: U256,\n        tick_lower: U256,\n        tick_upper: U256,\n        amounts: Vec<U256>,\n    ) -> Result<U256, OrbitalAMMError> {\n        let pool = self.pools.get(pool_id);\n        if !pool.active.get() {\n            return Err(OrbitalAMMError::PoolNotFound(PoolNotFound {}));\n        }\n        \n        if amounts.len() != pool.token_count.get() as usize {\n            return Err(OrbitalAMMError::InvalidAmount(InvalidAmount {}));\n        }\n        \n        if tick_lower >= tick_upper {\n            return Err(OrbitalAMMError::TickOutOfRange(TickOutOfRange {}));\n        }\n        \n        // Calculate liquidity amount based on amounts\n        let liquidity = amounts.iter().fold(U256::ZERO, |acc, &amount| acc + amount);\n        \n        // Update pool concentrated liquidity\n        let mut pool_mut = self.pools.setter(pool_id);\n        let new_cl = pool.concentrated_liquidity.get() + liquidity;\n        pool_mut.concentrated_liquidity.set(new_cl);\n        \n        // Update total liquidity shares\n        let new_shares = pool.total_liquidity_shares.get() + liquidity;\n        pool_mut.total_liquidity_shares.set(new_shares);\n        \n        evm::log(ConcentratedLiquidityAdded {\n            poolId: pool_id,\n            provider: msg::sender(),\n            amounts: amounts.clone(),\n            tickLower: tick_lower,\n            tickUpper: tick_upper,\n        });\n        \n        Ok(liquidity)\n    }\n    \n    /// Configure MEV protection parameters\n    /// - commit_reveal_delay: Blocks to wait between commit and reveal
     /// - twap_window: Time window for TWAP calculation in seconds
     pub fn configure_mev_protection(
         &mut self,
