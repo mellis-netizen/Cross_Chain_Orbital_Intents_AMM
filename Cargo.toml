@@ -42,6 +42,11 @@ async-trait = "0.1"
 ethers = "2.0"
 alloy = { version = "0.3", features = ["full"] }
 
+# Stylus SDK and primitives for smart contracts
+stylus-sdk = "0.4"
+alloy-primitives = "0.7"
+alloy-sol-types = "0.7"
+
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -64,6 +69,15 @@ uuid = { version = "1.0", features = ["v4"] }
 sha2 = "0.10"
 rand = "0.8"
 
+# Testing dependencies
+proptest = "1.4"
+criterion = { version = "0.5", features = ["html_reports"] }
+mockall = "0.12"
+rstest = "0.18"
+assert_matches = "1.5"
+serial_test = "3.0"
+tokio-test = "0.4"
+
 [dependencies]
 # Core dependencies
 tokio = { workspace = true }
@@ -83,7 +97,13 @@ intents-solver = { path = "core/solver" }
 intents-bridge = { path = "core/bridge" }
 
 [dev-dependencies]
-tokio-test = "0.4"
+tokio-test = { workspace = true }
+proptest = { workspace = true }
+criterion = { workspace = true }
+mockall = { workspace = true }
+rstest = { workspace = true }
+assert_matches = { workspace = true }
+serial_test = { workspace = true }
 
 [features]
 default = ["holesky-deployment"]

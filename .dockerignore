@@ -1,0 +1,55 @@
+# Git
+.git
+.gitignore
+
+# CI/CD
+.github
+
+# Documentation
+docs/
+*.md
+LICENSE
+
+# Frontend
+frontend/
+!frontend/build/
+
+# Development
+.env*
+target/debug/
+node_modules/
+.next/
+.cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Test coverage
+coverage/
+*.gcov
+*.lcov
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Build artifacts
+*.wasm
+*.abi
+*.bin
+
+# Local development
+docker-compose.override.yml
+.env.local

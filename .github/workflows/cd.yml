@@ -1,0 +1,224 @@
+name: Continuous Deployment
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        type: choice
+        options:
+          - testnet
+          - mainnet
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+
+  deploy-contracts:
+    name: Deploy Smart Contracts
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    environment: ${{ github.event.inputs.environment || 'testnet' }}
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install Foundry
+      uses: foundry-rs/foundry-toolchain@v1
+      with:
+        version: nightly
+    
+    - name: Deploy to Ethereum
+      run: |
+        cd contracts/orbital-amm
+        forge script script/Deploy.s.sol:Deploy \
+          --rpc-url ${{ secrets.ETH_RPC_URL }} \
+          --private-key ${{ secrets.DEPLOYER_PRIVATE_KEY }} \
+          --broadcast \
+          --verify \
+          --etherscan-api-key ${{ secrets.ETHERSCAN_API_KEY }}
+    
+    - name: Deploy to Arbitrum
+      run: |
+        cd contracts/orbital-amm
+        forge script script/Deploy.s.sol:Deploy \
+          --rpc-url ${{ secrets.ARB_RPC_URL }} \
+          --private-key ${{ secrets.DEPLOYER_PRIVATE_KEY }} \
+          --broadcast \
+          --verify \
+          --etherscan-api-key ${{ secrets.ARBISCAN_API_KEY }}
+    
+    - name: Deploy to Optimism
+      run: |
+        cd contracts/orbital-amm
+        forge script script/Deploy.s.sol:Deploy \
+          --rpc-url ${{ secrets.OP_RPC_URL }} \
+          --private-key ${{ secrets.DEPLOYER_PRIVATE_KEY }} \
+          --broadcast \
+          --verify \
+          --etherscan-api-key ${{ secrets.OPSCAN_API_KEY }}
+    
+    - name: Deploy to Base
+      run: |
+        cd contracts/orbital-amm
+        forge script script/Deploy.s.sol:Deploy \
+          --rpc-url ${{ secrets.BASE_RPC_URL }} \
+          --private-key ${{ secrets.DEPLOYER_PRIVATE_KEY }} \
+          --broadcast \
+          --verify \
+          --etherscan-api-key ${{ secrets.BASESCAN_API_KEY }}
+    
+    - name: Save deployment artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: deployment-artifacts
+        path: |
+          contracts/orbital-amm/broadcast/
+          contracts/orbital-amm/deployments/
+
+  deploy-backend:
+    name: Deploy Backend
+    runs-on: ubuntu-latest
+    needs: deploy-contracts
+    environment: ${{ github.event.inputs.environment || 'testnet' }}
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Download deployment artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: deployment-artifacts
+    
+    - name: Build Docker image
+      run: |
+        docker build -t orbital-amm-backend:${{ github.sha }} .
+        docker tag orbital-amm-backend:${{ github.sha }} orbital-amm-backend:latest
+    
+    - name: Push to registry
+      run: |
+        echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+        docker push orbital-amm-backend:${{ github.sha }}
+        docker push orbital-amm-backend:latest
+    
+    - name: Deploy to Kubernetes
+      run: |
+        echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > kubeconfig
+        export KUBECONFIG=kubeconfig
+        kubectl set image deployment/orbital-amm-backend \
+          backend=orbital-amm-backend:${{ github.sha }} \
+          -n ${{ github.event.inputs.environment || 'testnet' }}
+        kubectl rollout status deployment/orbital-amm-backend \
+          -n ${{ github.event.inputs.environment || 'testnet' }}
+
+  deploy-frontend:
+    name: Deploy Frontend
+    runs-on: ubuntu-latest
+    needs: deploy-contracts
+    environment: ${{ github.event.inputs.environment || 'testnet' }}
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Download deployment artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: deployment-artifacts
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+    
+    - name: Install dependencies
+      run: |
+        cd frontend
+        npm ci
+    
+    - name: Update contract addresses
+      run: |
+        cd frontend
+        node scripts/update-contracts.js
+    
+    - name: Build frontend
+      run: |
+        cd frontend
+        npm run build
+      env:
+        NEXT_PUBLIC_ENVIRONMENT: ${{ github.event.inputs.environment || 'testnet' }}
+        NEXT_PUBLIC_ETH_RPC_URL: ${{ secrets.ETH_RPC_URL }}
+        NEXT_PUBLIC_ARB_RPC_URL: ${{ secrets.ARB_RPC_URL }}
+        NEXT_PUBLIC_OP_RPC_URL: ${{ secrets.OP_RPC_URL }}
+        NEXT_PUBLIC_BASE_RPC_URL: ${{ secrets.BASE_RPC_URL }}
+    
+    - name: Deploy to Netlify
+      uses: netlify/actions/deploy@v1
+      with:
+        publish-dir: './frontend/out'
+        production-deploy: true
+        deploy-message: "Deploy from GitHub Actions"
+      env:
+        NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+        NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+
+  post-deployment-tests:
+    name: Post-Deployment Tests
+    runs-on: ubuntu-latest
+    needs: [deploy-backend, deploy-frontend]
+    environment: ${{ github.event.inputs.environment || 'testnet' }}
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+    
+    - name: Run smoke tests
+      run: |
+        npm install -g newman
+        newman run tests/postman/smoke-tests.json \
+          --environment tests/postman/${{ github.event.inputs.environment || 'testnet' }}.json
+    
+    - name: Run E2E tests
+      run: |
+        cd tests/e2e
+        npm install
+        npm run test:${{ github.event.inputs.environment || 'testnet' }}
+
+  notify-deployment:
+    name: Notify Deployment
+    runs-on: ubuntu-latest
+    needs: post-deployment-tests
+    if: always()
+    
+    steps:
+    - name: Send Discord notification
+      env:
+        DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+      run: |
+        if [ "${{ needs.post-deployment-tests.result }}" == "success" ]; then
+          curl -X POST $DISCORD_WEBHOOK \
+            -H "Content-Type: application/json" \
+            -d '{
+              "content": "🚀 **Deployment Successful!**\n\nEnvironment: `${{ github.event.inputs.environment || 'testnet' }}`\nVersion: `${{ github.ref_name }}`\nCommit: `${{ github.sha }}`"
+            }'
+        else
+          curl -X POST $DISCORD_WEBHOOK \
+            -H "Content-Type: application/json" \
+            -d '{
+              "content": "❌ **Deployment Failed!**\n\nEnvironment: `${{ github.event.inputs.environment || 'testnet' }}`\nVersion: `${{ github.ref_name }}`\nCommit: `${{ github.sha }}`\n\nCheck the GitHub Actions logs for details."
+            }'
+        fi

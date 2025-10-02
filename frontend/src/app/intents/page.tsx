@@ -1,90 +1,142 @@
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
-import { Badge } from '@/components/ui/Badge'
+'use client'
 
-export const metadata = {
-  title: 'Intents - Orbital AMM',
-  description: 'Create and manage cross-chain intents',
-}
+import { useState } from 'react'
+import { Card } from '@/components/ui/Card'
+import { Badge } from '@/components/ui/Badge'
+import { Button } from '@/components/ui/Button'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs'
+import { CrossChainBridge } from '@/components/bridge/CrossChainBridge'
+import { IntentManager } from '@/components/intents/IntentManager'
+import { IntentHistory } from '@/components/intents/IntentHistory'
+import { SolverNetwork } from '@/components/intents/SolverNetwork'
+import { 
+  Zap, 
+  History, 
+  Network, 
+  TrendingUp,
+  Users,
+  Clock,
+  CheckCircle
+} from 'lucide-react'
 
 export default function IntentsPage() {
+  const [activeTab, setActiveTab] = useState('create')
+
   return (
-    <div className="max-w-6xl mx-auto">
-      <div className="text-center mb-8">
-        <h1 className="text-4xl font-bold mb-4">
-          Cross-Chain <span className="gradient-text">Intents</span>
+    <div className="max-w-7xl mx-auto space-y-8">
+      <div className="text-center">
+        <h1 className="text-4xl font-bold text-white mb-4">
+          Cross-Chain <span className="bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent">Intents</span>
         </h1>
-        <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-          Express your trading intentions across multiple chains and let solvers compete to execute them.
+        <p className="text-xl text-gray-400 max-w-3xl mx-auto">
+          Express your trading intentions across multiple chains and let our solver network compete to execute them with optimal routing and MEV protection.
         </p>
       </div>
 
-      <div className="grid gap-6">
-        {/* Create Intent Card */}
-        <Card className="border-orbital-200 dark:border-orbital-800">
-          <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <span>Create New Intent</span>
-              <Badge variant="info">Coming Soon</Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-muted-foreground mb-4">
-              Intent creation interface is currently under development. This will allow you to:
-            </p>
-            <ul className="space-y-2 text-sm text-muted-foreground">
-              <li>• Specify source and destination chains</li>
-              <li>• Set token amounts and minimum output requirements</li>
-              <li>• Define execution deadlines and conditions</li>
-              <li>• Monitor solver competition and execution</li>
-            </ul>
-          </CardContent>
-        </Card>
-
-        {/* Intent History */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Intent History</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-center py-8 text-muted-foreground">
-              <p>No intents found. Create your first intent to get started.</p>
+      {/* Stats Overview */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <Card className="p-6 bg-white/5 border-white/10 backdrop-blur-md">
+          <div className="flex items-center space-x-3">
+            <div className="p-3 bg-blue-500/20 rounded-lg">
+              <TrendingUp className="w-6 h-6 text-blue-400" />
             </div>
-          </CardContent>
+            <div>
+              <div className="text-2xl font-bold text-white">1,247</div>
+              <div className="text-sm text-gray-400">Total Intents</div>
+            </div>
+          </div>
+          <div className="mt-2 text-xs text-green-400">+12% from last week</div>
         </Card>
-
-        {/* System Overview */}
-        <div className="grid md:grid-cols-3 gap-4">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Total Intents</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">1,247</div>
-              <p className="text-xs text-muted-foreground">+12% from last week</p>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Success Rate</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-success-600">98.5%</div>
-              <p className="text-xs text-muted-foreground">Last 30 days</p>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Avg Execution Time</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">45s</div>
-              <p className="text-xs text-muted-foreground">Including MEV protection</p>
-            </CardContent>
-          </Card>
-        </div>
+        
+        <Card className="p-6 bg-white/5 border-white/10 backdrop-blur-md">
+          <div className="flex items-center space-x-3">
+            <div className="p-3 bg-green-500/20 rounded-lg">
+              <CheckCircle className="w-6 h-6 text-green-400" />
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-white">98.5%</div>
+              <div className="text-sm text-gray-400">Success Rate</div>
+            </div>
+          </div>
+          <div className="mt-2 text-xs text-gray-400">Last 30 days</div>
+        </Card>
+        
+        <Card className="p-6 bg-white/5 border-white/10 backdrop-blur-md">
+          <div className="flex items-center space-x-3">
+            <div className="p-3 bg-purple-500/20 rounded-lg">
+              <Clock className="w-6 h-6 text-purple-400" />
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-white">45s</div>
+              <div className="text-sm text-gray-400">Avg Execution</div>
+            </div>
+          </div>
+          <div className="mt-2 text-xs text-gray-400">Including MEV protection</div>
+        </Card>
+        
+        <Card className="p-6 bg-white/5 border-white/10 backdrop-blur-md">
+          <div className="flex items-center space-x-3">
+            <div className="p-3 bg-orange-500/20 rounded-lg">
+              <Users className="w-6 h-6 text-orange-400" />
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-white">23</div>
+              <div className="text-sm text-gray-400">Active Solvers</div>
+            </div>
+          </div>
+          <div className="mt-2 text-xs text-gray-400">Network participants</div>
+        </Card>
       </div>
+
+      {/* Main Interface */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="grid w-full grid-cols-4 bg-white/5 border border-white/10">
+          <TabsTrigger 
+            value="create" 
+            className="flex items-center space-x-2 data-[state=active]:bg-white/10"
+          >
+            <Zap className="w-4 h-4" />
+            <span>Create Intent</span>
+          </TabsTrigger>
+          <TabsTrigger 
+            value="manage" 
+            className="flex items-center space-x-2 data-[state=active]:bg-white/10"
+          >
+            <History className="w-4 h-4" />
+            <span>Manage</span>
+          </TabsTrigger>
+          <TabsTrigger 
+            value="history" 
+            className="flex items-center space-x-2 data-[state=active]:bg-white/10"
+          >
+            <History className="w-4 h-4" />
+            <span>History</span>
+          </TabsTrigger>
+          <TabsTrigger 
+            value="solvers" 
+            className="flex items-center space-x-2 data-[state=active]:bg-white/10"
+          >
+            <Network className="w-4 h-4" />
+            <span>Solver Network</span>
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="create" className="mt-6">
+          <CrossChainBridge />
+        </TabsContent>
+
+        <TabsContent value="manage" className="mt-6">
+          <IntentManager />
+        </TabsContent>
+
+        <TabsContent value="history" className="mt-6">
+          <IntentHistory />
+        </TabsContent>
+
+        <TabsContent value="solvers" className="mt-6">
+          <SolverNetwork />
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

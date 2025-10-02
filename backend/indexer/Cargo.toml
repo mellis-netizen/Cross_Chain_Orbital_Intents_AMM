@@ -1,0 +1,64 @@
+[package]
+name = "intents-indexer"
+version = "1.0.0"
+edition = "2021"
+authors = ["Rust Intents Team"]
+license = "MIT"
+description = "Blockchain indexer for Cross-Chain Orbital Intents AMM"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.40", features = ["full"] }
+async-trait = "0.1"
+futures = "0.3"
+
+# Blockchain
+ethers = { version = "2.0", features = ["ws", "rustls"] }
+alloy = { version = "0.3", features = ["full"] }
+
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json"] }
+
+# Redis
+redis = { version = "0.24", features = ["tokio-comp", "connection-manager"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+eyre = "0.6"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Utilities
+uuid = { version = "1.0", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4.0", features = ["derive"] }
+dotenv = "0.15"
+
+# Internal dependencies
+intents-engine = { path = "../../core/engine" }
+intents-solver = { path = "../../core/solver" }
+intents-bridge = { path = "../../core/bridge" }
+
+# Message queue
+tokio-tungstenite = "0.21"
+
+[dev-dependencies]
+tokio-test = "0.4"
+
+[features]
+default = []
+holesky = []
+mainnet = []
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"

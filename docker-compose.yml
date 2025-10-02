@@ -1,0 +1,180 @@
+version: '3.8'
+
+services:
+  # Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: orbital-amm-db
+    environment:
+      POSTGRES_DB: orbital_amm
+      POSTGRES_USER: orbital
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-orbital_dev}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orbital -d orbital_amm"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - orbital-network
+
+  # Redis for caching and sessions
+  redis:
+    image: redis:7-alpine
+    container_name: orbital-amm-cache
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - orbital-network
+
+  # API Backend
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: orbital-amm-api
+    environment:
+      DATABASE_URL: postgres://orbital:${POSTGRES_PASSWORD:-orbital_dev}@postgres:5432/orbital_amm
+      REDIS_URL: redis://redis:6379
+      RUST_LOG: ${RUST_LOG:-info}
+      SERVER_ADDRESS: 0.0.0.0:8080
+      ETH_RPC_URL: ${ETH_RPC_URL}
+      ARB_RPC_URL: ${ARB_RPC_URL}
+      OP_RPC_URL: ${OP_RPC_URL}
+      BASE_RPC_URL: ${BASE_RPC_URL}
+      PRIVATE_KEY: ${PRIVATE_KEY}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    volumes:
+      - ./config:/app/config:ro
+    networks:
+      - orbital-network
+
+  # Indexer service
+  indexer:
+    build:
+      context: .
+      dockerfile: Dockerfile.indexer
+    container_name: orbital-amm-indexer
+    environment:
+      DATABASE_URL: postgres://orbital:${POSTGRES_PASSWORD:-orbital_dev}@postgres:5432/orbital_amm
+      REDIS_URL: redis://redis:6379
+      RUST_LOG: ${RUST_LOG:-info}
+      ETH_RPC_URL: ${ETH_RPC_URL}
+      ARB_RPC_URL: ${ARB_RPC_URL}
+      OP_RPC_URL: ${OP_RPC_URL}
+      BASE_RPC_URL: ${BASE_RPC_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./config:/app/config:ro
+    networks:
+      - orbital-network
+
+  # Solver service
+  solver:
+    build:
+      context: .
+      dockerfile: Dockerfile.solver
+    container_name: orbital-amm-solver
+    environment:
+      DATABASE_URL: postgres://orbital:${POSTGRES_PASSWORD:-orbital_dev}@postgres:5432/orbital_amm
+      REDIS_URL: redis://redis:6379
+      RUST_LOG: ${RUST_LOG:-info}
+      ETH_RPC_URL: ${ETH_RPC_URL}
+      ARB_RPC_URL: ${ARB_RPC_URL}
+      OP_RPC_URL: ${OP_RPC_URL}
+      BASE_RPC_URL: ${BASE_RPC_URL}
+      SOLVER_PRIVATE_KEY: ${SOLVER_PRIVATE_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./config:/app/config:ro
+    networks:
+      - orbital-network
+
+  # Monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: orbital-amm-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    networks:
+      - orbital-network
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: orbital-amm-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    networks:
+      - orbital-network
+
+  # Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: orbital-amm-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - api
+    networks:
+      - orbital-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  orbital-network:
+    driver: bridge

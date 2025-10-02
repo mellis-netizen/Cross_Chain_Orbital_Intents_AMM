@@ -1,0 +1,221 @@
+swarm:
+  name: "orbital-amm-safla-swarm"
+  architecture: "queen-worker-hierarchy"
+  
+  neural_memory:
+    mode: "SAFLA"
+    enabled: true
+    persistence: true
+    learning_rate: 0.1
+    context_window: 100000  # tokens
+    memory_layers:
+      - short_term: 10000   # Recent interactions
+      - working_memory: 50000  # Active task context
+      - long_term: 100000   # Historical patterns
+    
+    fractal_depth: 3  # Recursive analysis depth
+    adaptive_routing: true  # Queen dynamically assigns tasks
+    
+  queen_agent:
+    name: "orchestrator-queen"
+    role: "Master Coordinator & Context Manager"
+    memory_mode: "SAFLA-enhanced"
+    
+    capabilities:
+      - "Maintain holistic project understanding"
+      - "Coordinate worker agents dynamically"
+      - "Synthesize multi-agent insights"
+      - "Adapt strategy based on findings"
+      - "Prioritize critical issues"
+      - "Learn from review iterations"
+      - "Generate executive summaries"
+    
+    neural_functions:
+      - pattern_recognition: "Identify recurring issues across codebase"
+      - context_linking: "Connect related findings from different agents"
+      - priority_evolution: "Adjust focus based on discovered risks"
+      - knowledge_synthesis: "Build comprehensive mental model of system"
+      - adaptive_delegation: "Reassign tasks based on agent performance"
+    
+    decision_making:
+      strategy: "dynamic-priority-based"
+      feedback_loops: true
+      self_correction: true
+      confidence_threshold: 0.85
+  
+  worker_agents:
+    - name: "security-sentinel"
+      role: "Security Deep Dive"
+      specialization: "smart_contract_security"
+      memory_mode: "SAFLA-worker"
+      reports_to: "orchestrator-queen"
+      
+      neural_capabilities:
+        - pattern_matching: "Known vulnerability signatures"
+        - anomaly_detection: "Unusual patterns in code"
+        - threat_modeling: "Attack vector analysis"
+      
+      tasks:
+        - "Reentrancy analysis"
+        - "Access control verification"
+        - "Integer overflow/underflow checks"
+        - "Cross-chain bridge security"
+        - "Intent validation vulnerabilities"
+        - "Economic exploit vectors"
+        - "Frontrunning/MEV risks"
+    
+    - name: "architecture-sage"
+      role: "System Design & Patterns"
+      specialization: "software_architecture"
+      memory_mode: "SAFLA-worker"
+      reports_to: "orchestrator-queen"
+      
+      neural_capabilities:
+        - pattern_library: "Design patterns recognition"
+        - anti_pattern_detection: "Code smell identification"
+        - system_modeling: "Component interaction analysis"
+      
+      tasks:
+        - "Cross-chain architecture review"
+        - "Orbital intent mechanism design"
+        - "Contract interaction patterns"
+        - "Upgradeability strategy"
+        - "State management design"
+        - "Event emission patterns"
+    
+    - name: "gas-wizard"
+      role: "Performance & Optimization"
+      specialization: "gas_optimization"
+      memory_mode: "SAFLA-worker"
+      reports_to: "orchestrator-queen"
+      
+      neural_capabilities:
+        - cost_profiling: "Gas usage pattern analysis"
+        - optimization_patterns: "Known optimization techniques"
+        - benchmark_comparison: "Industry standard comparison"
+      
+      tasks:
+        - "Gas profiling per function"
+        - "Storage optimization opportunities"
+        - "Loop and calculation efficiency"
+        - "Batch operation potential"
+        - "Memory vs storage usage"
+    
+    - name: "quality-guardian"
+      role: "Code Quality & Maintainability"
+      specialization: "code_quality"
+      memory_mode: "SAFLA-worker"
+      reports_to: "orchestrator-queen"
+      
+      neural_capabilities:
+        - style_consistency: "Coding standard adherence"
+        - documentation_completeness: "NatSpec coverage analysis"
+        - maintainability_scoring: "Technical debt assessment"
+      
+      tasks:
+        - "Code style consistency"
+        - "Documentation completeness"
+        - "Naming convention adherence"
+        - "Error handling patterns"
+        - "Code complexity analysis"
+    
+    - name: "test-engineer"
+      role: "Testing Strategy & Coverage"
+      specialization: "testing_qa"
+      memory_mode: "SAFLA-worker"
+      reports_to: "orchestrator-queen"
+      
+      neural_capabilities:
+        - coverage_analysis: "Test gap identification"
+        - edge_case_generation: "Boundary condition discovery"
+        - test_quality_assessment: "Assertion effectiveness"
+      
+      tasks:
+        - "Unit test coverage analysis"
+        - "Integration test review"
+        - "Edge case identification"
+        - "Fuzz testing recommendations"
+        - "Cross-chain scenario testing"
+    
+    - name: "deployment-ops"
+      role: "DevOps & Integration"
+      specialization: "deployment_integration"
+      memory_mode: "SAFLA-worker"
+      reports_to: "orchestrator-queen"
+      
+      neural_capabilities:
+        - deployment_validation: "Script and config review"
+        - integration_testing: "Multi-chain deployment flow"
+        - monitoring_setup: "Observability patterns"
+      
+      tasks:
+        - "Deployment script validation"
+        - "Multi-chain configuration"
+        - "Upgrade mechanism review"
+        - "Monitoring and alerting"
+        - "Rollback procedures"
+  
+  coordination:
+    mode: "queen-directed-adaptive"
+    
+    queen_orchestration:
+      initial_phase:
+        - "Queen analyzes repository structure"
+        - "Queen builds mental model of system"
+        - "Queen creates strategic review plan"
+        - "Queen assigns initial tasks to workers"
+      
+      iterative_phase:
+        - "Workers report findings to Queen"
+        - "Queen synthesizes cross-agent insights"
+        - "Queen identifies patterns and priorities"
+        - "Queen reassigns focus areas dynamically"
+        - "Queen requests deep-dives on critical issues"
+      
+      synthesis_phase:
+        - "Queen consolidates all findings"
+        - "Queen ranks issues by severity and impact"
+        - "Queen generates action plan"
+        - "Queen creates executive summary"
+    
+    communication_protocol:
+      worker_to_queen: "structured_reports"
+      queen_to_worker: "directed_tasks"
+      worker_to_worker: "via_queen_only"  # Prevents confusion
+      
+    feedback_loops:
+      - type: "immediate"
+        trigger: "critical_finding"
+        action: "queen_redirects_swarm_focus"
+      
+      - type: "periodic"
+        interval: "per_agent_completion"
+        action: "queen_reassesses_priorities"
+      
+      - type: "final"
+        trigger: "all_agents_complete"
+        action: "queen_synthesizes_master_report"
+    
+    adaptive_learning:
+      enabled: true
+      learning_triggers:
+        - "New vulnerability pattern discovered"
+        - "Recurring issue across multiple files"
+        - "Unexpected interaction pattern"
+        - "Performance bottleneck identified"
+      
+      knowledge_update:
+        - "Queen updates mental model"
+        - "Pattern library expanded"
+        - "Priority matrix adjusted"
+        - "Worker specializations refined"
+
+  output:
+    format: "hierarchical"
+    structure:
+      - queen_executive_summary
+      - critical_findings_synthesis
+      - worker_detailed_reports
+      - cross_cutting_concerns
+      - prioritized_action_plan
+      - optimization_roadmap

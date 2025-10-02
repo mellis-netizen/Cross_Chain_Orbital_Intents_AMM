@@ -1,0 +1,81 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'orbital-amm'
+
+rule_files:
+  - "rules/*.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Orbital AMM API
+  - job_name: 'orbital-amm-api'
+    static_configs:
+      - targets: ['api:8080']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+
+  # Orbital AMM Indexer
+  - job_name: 'orbital-amm-indexer'
+    static_configs:
+      - targets: ['indexer:8081']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # Orbital AMM Solver
+  - job_name: 'orbital-amm-solver'
+    static_configs:
+      - targets: ['solver:8082']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # PostgreSQL
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+    scrape_interval: 30s
+
+  # Redis
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+    scrape_interval: 30s
+
+  # Node Exporter (System metrics)
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 30s
+
+  # Nginx
+  - job_name: 'nginx'
+    static_configs:
+      - targets: ['nginx-exporter:9113']
+    scrape_interval: 30s
+
+  # Blockchain nodes (if running own nodes)
+  - job_name: 'ethereum-node'
+    static_configs:
+      - targets: ['eth-node:8545']
+    metrics_path: '/metrics'
+    scrape_interval: 60s
+
+  # Custom application metrics
+  - job_name: 'orbital-amm-custom'
+    static_configs:
+      - targets: ['api:8080']
+    metrics_path: '/custom-metrics'
+    scrape_interval: 15s
+    honor_labels: true

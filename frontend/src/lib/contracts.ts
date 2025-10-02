@@ -468,31 +468,89 @@ export const MOCK_USDC_ABI = [
   }
 ] as const
 
-// Contract addresses will be loaded from deployment artifacts
-export const CONTRACT_ADDRESSES = {
-  ORBITAL_AMM: '0x0000000000000000000000000000000000000000' as Address,
-  INTENTS_ENGINE: '0x0000000000000000000000000000000000000000' as Address,
-  MOCK_USDC: '0x0000000000000000000000000000000000000000' as Address,
+// Contract addresses for different networks
+interface NetworkContracts {
+  ORBITAL_AMM: Address
+  INTENTS_ENGINE: Address
+  MOCK_USDC: Address
+  WETH?: Address
 }
 
-// Load contract addresses from deployment artifacts
-export async function loadContractAddresses(): Promise<typeof CONTRACT_ADDRESSES> {
+type ChainId = 1 | 17000 | 31337 // Mainnet, Holesky, Local
+
+const NETWORK_CONTRACTS: Record<ChainId, NetworkContracts> = {
+  // Holesky Testnet (Chain ID: 17000)
+  17000: {
+    ORBITAL_AMM: '0x0000000000000000000000000000000000000000' as Address, // To be updated from deployment
+    INTENTS_ENGINE: '0x0000000000000000000000000000000000000000' as Address, // To be updated from deployment
+    MOCK_USDC: '0x0000000000000000000000000000000000000000' as Address, // To be updated from deployment
+    WETH: '0x94373a4919B3240D86eA41593D5eBa789FEF3848' as Address, // Holesky WETH
+  },
+  // Ethereum Mainnet (Chain ID: 1)
+  1: {
+    ORBITAL_AMM: '0x0000000000000000000000000000000000000000' as Address, // To be deployed
+    INTENTS_ENGINE: '0x0000000000000000000000000000000000000000' as Address, // To be deployed
+    MOCK_USDC: '0xA0b86a33E6776d8Dc91Ad7e6aD5E15B59A7F0eC7' as Address, // Real USDC
+    WETH: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2' as Address, // Mainnet WETH
+  },
+  // Local Development (Chain ID: 31337)
+  31337: {
+    ORBITAL_AMM: '0x5FbDB2315678afecb367f032d93F642f64180aa3' as Address, // Local deployment
+    INTENTS_ENGINE: '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512' as Address, // Local deployment
+    MOCK_USDC: '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0' as Address, // Local deployment
+  },
+}
+
+// Default contracts (Holesky)
+export const CONTRACT_ADDRESSES = NETWORK_CONTRACTS[17000]
+
+// Get contracts for specific network
+export function getContractAddresses(chainId: ChainId): NetworkContracts {
+  return NETWORK_CONTRACTS[chainId] || CONTRACT_ADDRESSES
+}
+
+// Load contract addresses from deployment artifacts or environment
+export async function loadContractAddresses(chainId: ChainId = 17000): Promise<NetworkContracts> {
   try {
-    // In a real app, this would fetch from deployment artifacts or API
-    const response = await fetch('/api/contracts')
+    // Try to load from API first
+    const response = await fetch(`/api/contracts?chainId=${chainId}`)
     if (response.ok) {
       const addresses = await response.json()
       return {
-        ORBITAL_AMM: addresses.orbital_amm,
-        INTENTS_ENGINE: addresses.intents_engine,
-        MOCK_USDC: addresses.mock_usdc,
+        ORBITAL_AMM: addresses.orbital_amm || NETWORK_CONTRACTS[chainId].ORBITAL_AMM,
+        INTENTS_ENGINE: addresses.intents_engine || NETWORK_CONTRACTS[chainId].INTENTS_ENGINE,
+        MOCK_USDC: addresses.mock_usdc || NETWORK_CONTRACTS[chainId].MOCK_USDC,
+        WETH: addresses.weth || NETWORK_CONTRACTS[chainId].WETH,
       }
     }
   } catch (error) {
-    console.warn('Failed to load contract addresses:', error)
+    console.warn('Failed to load contract addresses from API:', error)
   }
   
-  return CONTRACT_ADDRESSES
+  // Try to load from environment variables
+  try {
+    const envContracts = {
+      ORBITAL_AMM: (process.env.NEXT_PUBLIC_ORBITAL_AMM_ADDRESS as Address) || NETWORK_CONTRACTS[chainId].ORBITAL_AMM,
+      INTENTS_ENGINE: (process.env.NEXT_PUBLIC_INTENTS_ENGINE_ADDRESS as Address) || NETWORK_CONTRACTS[chainId].INTENTS_ENGINE,
+      MOCK_USDC: (process.env.NEXT_PUBLIC_MOCK_USDC_ADDRESS as Address) || NETWORK_CONTRACTS[chainId].MOCK_USDC,
+      WETH: (process.env.NEXT_PUBLIC_WETH_ADDRESS as Address) || NETWORK_CONTRACTS[chainId].WETH,
+    }
+    
+    // Only return env contracts if at least one is set
+    if (Object.values(envContracts).some(addr => addr !== NETWORK_CONTRACTS[chainId].ORBITAL_AMM)) {
+      return envContracts
+    }
+  } catch (error) {
+    console.warn('Failed to load contract addresses from environment:', error)
+  }
+  
+  return NETWORK_CONTRACTS[chainId]
+}
+
+// Validate contract addresses
+export function validateContractAddresses(contracts: NetworkContracts): boolean {
+  const zeroAddress = '0x0000000000000000000000000000000000000000'
+  return Object.values(contracts).every(addr => addr && addr !== zeroAddress)
 }
 
 export default {

@@ -1,0 +1,35 @@
+# Cargo configuration for testing optimization
+
+[build]
+# Optimize test compilation
+jobs = 4
+
+[target.'cfg(test)']
+rustflags = [
+    "--cfg", "test_build",
+    "-C", "debug-assertions=on",
+    "-C", "overflow-checks=on"
+]
+
+# Test runner configuration
+[alias]
+test-all = "test --workspace --all-features"
+test-unit = "test --workspace --lib"
+test-integration = "test --workspace --test '*'"
+test-docs = "test --workspace --doc"
+test-fast = "test --workspace --lib --tests"
+test-coverage = "tarpaulin --out Html --output-dir target/coverage"
+bench-all = "bench --workspace --all-features"
+
+# Performance testing
+[profile.bench]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.test]
+opt-level = 1
+debug = true
+debug-assertions = true
+overflow-checks = true

@@ -1,0 +1,104 @@
+queen_directives:
+  initial_assessment:
+    prompt: |
+      As the Queen Orchestrator with SAFLA neural memory, analyze this
+      Cross Chain Orbital Intents AMM repository comprehensively.
+      
+      Build a complete mental model including:
+      1. Architecture overview and component relationships
+      2. Critical security surface areas
+      3. Cross-chain interaction patterns
+      4. Intent mechanism flow
+      5. Economic model and incentive structure
+      
+      Identify the TOP 5 highest-risk areas requiring immediate deep-dive.
+      Create a strategic review plan for your worker swarm.
+  
+  worker_task_generation:
+    prompt: |
+      Based on your mental model and initial assessment, generate specific,
+      actionable tasks for each worker agent:
+      
+      For Security Sentinel:
+      - Focus on [identified high-risk areas]
+      - Priority: [ranked security concerns]
+      
+      For Architecture Sage:
+      - Evaluate [specific design patterns]
+      - Assess [component interactions]
+      
+      [Continue for each worker...]
+      
+      Each task should be:
+      - Specific and measurable
+      - Bounded in scope
+      - Have clear success criteria
+      - Report back expected findings format
+  
+  adaptive_redirection:
+    trigger_conditions:
+      - "Critical vulnerability discovered"
+      - "Architectural flaw identified"
+      - "Pattern of related issues emerging"
+      - "Worker discovers unexpected behavior"
+    
+    prompt: |
+      CRITICAL FINDING DETECTED by {worker_name}:
+      {finding_summary}
+      
+      As Queen, reassess priorities:
+      1. Update your mental model with this new information
+      2. Identify related areas that need immediate investigation
+      3. Redirect available workers to deep-dive this issue
+      4. Adjust the overall review strategy
+      
+      Generate new directives for the swarm.
+  
+  cross_pollination:
+    prompt: |
+      You have received reports from multiple workers:
+      - Security Sentinel: {security_findings}
+      - Architecture Sage: {architecture_findings}
+      - Gas Wizard: {performance_findings}
+      
+      Synthesize these findings to identify:
+      1. Cross-cutting concerns (issues spanning multiple domains)
+      2. Root causes (underlying issues causing multiple symptoms)
+      3. Systemic patterns (recurring problems across codebase)
+      4. Hidden dependencies (unexpected interactions)
+      
+      Generate insights that no single worker could discover alone.
+  
+  final_synthesis:
+    prompt: |
+      As Queen Orchestrator, you have complete visibility into all
+      worker findings across the entire codebase review.
+      
+      Using your SAFLA neural memory, synthesize:
+      
+      1. CRITICAL ISSUES (Immediate Action Required)
+         - Security vulnerabilities
+         - Architectural flaws
+         - Economic exploits
+      
+      2. HIGH-PRIORITY IMPROVEMENTS
+         - Performance optimizations
+         - Code quality enhancements
+         - Testing gaps
+      
+      3. SYSTEMIC PATTERNS
+         - Recurring issues
+         - Design anti-patterns
+         - Technical debt areas
+      
+      4. STRATEGIC RECOMMENDATIONS
+         - Long-term improvements
+         - Refactoring priorities
+         - Process improvements
+      
+      5. POSITIVE PATTERNS
+         - Well-implemented features
+         - Good practices to maintain
+         - Strengths to leverage
+      
+      Create a master synthesis that provides actionable intelligence.

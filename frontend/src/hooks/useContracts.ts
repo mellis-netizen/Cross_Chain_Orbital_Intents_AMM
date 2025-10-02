@@ -5,31 +5,60 @@ import {
   ORBITAL_AMM_ABI, 
   INTENTS_ENGINE_ABI, 
   MOCK_USDC_ABI,
-  loadContractAddresses 
+  loadContractAddresses,
+  getContractAddresses 
 } from '@/lib/contracts'
+import { useNetwork } from 'wagmi'
 import { SwapParams, Pool, Intent, Solver } from '@/types'
 
-// Hook to get contract addresses
+// Hook to get contract addresses with network awareness
 export function useContractAddresses() {
+  const { chain } = useNetwork()
   const [addresses, setAddresses] = useState({
     orbitalAMM: '0x0000000000000000000000000000000000000000' as Address,
     intentsEngine: '0x0000000000000000000000000000000000000000' as Address,
     mockUSDC: '0x0000000000000000000000000000000000000000' as Address,
+    weth: '0x0000000000000000000000000000000000000000' as Address,
   })
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    loadContractAddresses().then((contracts) => {
-      setAddresses({
-        orbitalAMM: contracts.ORBITAL_AMM,
-        intentsEngine: contracts.INTENTS_ENGINE,
-        mockUSDC: contracts.MOCK_USDC,
-      })
-      setLoading(false)
-    })
-  }, [])
+    const loadAddresses = async () => {
+      try {
+        setLoading(true)
+        setError(null)
+        
+        const chainId = chain?.id || 17000 // Default to Holesky
+        const contracts = await loadContractAddresses(chainId as 1 | 17000 | 31337)
+        
+        setAddresses({
+          orbitalAMM: contracts.ORBITAL_AMM,
+          intentsEngine: contracts.INTENTS_ENGINE,
+          mockUSDC: contracts.MOCK_USDC,
+          weth: contracts.WETH || '0x0000000000000000000000000000000000000000' as Address,
+        })
+      } catch (err) {
+        console.error('Failed to load contract addresses:', err)
+        setError('Failed to load contract addresses')
+        
+        // Fallback to network defaults
+        const fallback = getContractAddresses((chain?.id || 17000) as 1 | 17000 | 31337)
+        setAddresses({
+          orbitalAMM: fallback.ORBITAL_AMM,
+          intentsEngine: fallback.INTENTS_ENGINE,
+          mockUSDC: fallback.MOCK_USDC,
+          weth: fallback.WETH || '0x0000000000000000000000000000000000000000' as Address,
+        })
+      } finally {
+        setLoading(false)
+      }
+    }
 
-  return { addresses, loading }
+    loadAddresses()
+  }, [chain?.id])
+
+  return { addresses, loading, error }
 }
 
 // Orbital AMM Hooks

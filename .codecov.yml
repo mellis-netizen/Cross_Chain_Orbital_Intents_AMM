@@ -1,0 +1,54 @@
+# Codecov configuration for comprehensive test coverage
+
+coverage:
+  status:
+    project:
+      default:
+        target: 80%
+        threshold: 2%
+        if_ci_failed: error
+    patch:
+      default:
+        target: 75%
+        threshold: 5%
+        if_ci_failed: error
+
+  flags:
+    frontend:
+      paths:
+        - frontend/src/
+      target: 80%
+    contracts:
+      paths:
+        - test/
+        - contracts/
+      target: 85%
+    rust-core:
+      paths:
+        - core/
+        - orbital-math/
+      target: 85%
+
+comment:
+  layout: "header, diff, flags, files"
+  behavior: default
+  require_changes: false
+  require_base: no
+  require_head: yes
+
+ignore:
+  - "frontend/node_modules/"
+  - "frontend/.next/"
+  - "target/"
+  - "out/"
+  - "cache/"
+  - "scripts/"
+  - "docs/"
+  - "**/*.test.ts"
+  - "**/*.test.tsx"
+  - "**/*.test.js"
+  - "**/*.test.jsx"
+  - "**/*.stories.ts"
+  - "**/*.stories.tsx"
+  - "**/mocks/"
+  - "**/fixtures/"
