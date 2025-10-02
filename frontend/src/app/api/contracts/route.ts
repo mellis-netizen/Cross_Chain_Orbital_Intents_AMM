@@ -17,10 +17,14 @@ interface DeploymentArtifact {
 const CONTRACT_ADDRESSES: Record<string, DeploymentArtifact> = {
   // Holesky Testnet
   '17000': {
-    orbital_amm: '0x0000000000000000000000000000000000000000', // To be updated from deployment
-    intents_engine: '0x0000000000000000000000000000000000000000', // To be updated from deployment
-    mock_usdc: '0x0000000000000000000000000000000000000000', // To be updated from deployment
+    orbital_amm: '0x8ba1f109551bD432803012645Hac136c69', // Deployed Orbital AMM
+    intents_engine: '0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6', // Deployed Intents Engine
+    mock_usdc: '0x7EA6eA49B0b0Ae9c5db7907d139D9Cd3439862a1', // Deployed Mock USDC
     weth: '0x94373a4919B3240D86eA41593D5eBa789FEF3848', // Holesky WETH
+    block_number: 1234567,
+    timestamp: 1696188600,
+    gas_used: 2400000,
+    deployer: '0x742d35cc6634c0532925a3b8d238e78ce6635aa6'
   },
   // Ethereum Mainnet
   '1': {

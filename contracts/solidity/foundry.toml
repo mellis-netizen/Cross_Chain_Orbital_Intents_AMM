@@ -1,0 +1,46 @@
+[profile.default]
+src = "."
+out = "out"
+libs = ["lib"]
+script = "script"
+test = "test"
+cache_path = "cache"
+force = false
+evm_version = "shanghai"
+optimizer = true
+optimizer_runs = 200
+via_ir = false
+verbosity = 3
+
+# Test configuration
+[profile.default.fuzz]
+runs = 1000
+max_test_rejects = 65536
+
+[profile.default.invariant]
+runs = 256
+depth = 15
+fail_on_revert = false
+call_override = false
+dictionary_weight = 80
+include_storage = true
+include_push_bytes = true
+
+# CI configuration
+[profile.ci]
+fuzz = { runs = 10000 }
+invariant = { runs = 1000 }
+
+# RPC endpoints
+[rpc_endpoints]
+mainnet = "${MAINNET_RPC_URL}"
+holesky = "https://crimson-attentive-emerald.ethereum-holesky.quiknode.pro/2f9f0ed63e2c2adf0adaca0fb431a457f86cf7ad/"
+polygon = "${POLYGON_RPC_URL}"
+arbitrum = "${ARBITRUM_RPC_URL}"
+
+# Etherscan API keys
+[etherscan]
+mainnet = { key = "${ETHERSCAN_API_KEY}" }
+holesky = { key = "${ETHERSCAN_API_KEY}" }
+polygon = { key = "${POLYGONSCAN_API_KEY}" }
+arbitrum = { key = "${ARBISCAN_API_KEY}" }

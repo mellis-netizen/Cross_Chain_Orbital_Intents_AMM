@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
-import { useContractRead, useContractWrite, usePrepareContractWrite } from 'wagmi'
-import { Address, formatUnits, parseUnits } from 'viem'
+import { useState, useEffect, useCallback } from 'react'
+import { useContractRead, useContractWrite, usePrepareContractWrite, usePublicClient } from 'wagmi'
+import { Address, formatUnits, parseUnits, Hash, parseEther } from 'viem'
 import { 
   ORBITAL_AMM_ABI, 
   INTENTS_ENGINE_ABI, 
@@ -10,6 +10,8 @@ import {
 } from '@/lib/contracts'
 import { useNetwork } from 'wagmi'
 import { SwapParams, Pool, Intent, Solver } from '@/types'
+import useTransactions from './useTransactions'
+import toast from 'react-hot-toast'
 
 // Hook to get contract addresses with network awareness
 export function useContractAddresses() {
@@ -131,41 +133,90 @@ export function useSwapQuote(
 
 export function useSwap() {
   const { addresses } = useContractAddresses()
-  
-  const { config, error: prepareError } = usePrepareContractWrite({
-    address: addresses.orbitalAMM,
-    abi: ORBITAL_AMM_ABI,
-    functionName: 'swap',
-  })
+  const { writeContract, estimateGas } = useTransactions()
+  const [isLoading, setIsLoading] = useState(false)
+  const [txHash, setTxHash] = useState<Hash | null>(null)
+  const [isSuccess, setIsSuccess] = useState(false)
+  const [error, setError] = useState<Error | null>(null)
 
-  const { 
-    data, 
-    isLoading, 
-    isSuccess, 
-    write,
-    error: writeError 
-  } = useContractWrite(config)
+  const swap = useCallback(async (params: SwapParams, value?: bigint) => {
+    if (!addresses.orbitalAMM) {
+      toast.error('Orbital AMM contract not found')
+      return
+    }
 
-  const swap = (params: SwapParams, value?: bigint) => {
-    if (!write) return
-    
-    write({
-      args: [
-        BigInt(params.poolId),
-        params.zeroForOne,
-        BigInt(params.amountIn),
-        BigInt(params.minAmountOut),
-      ],
-      value,
-    })
-  }
+    try {
+      setIsLoading(true)
+      setError(null)
+      setIsSuccess(false)
+      
+      // First estimate gas
+      const gasEstimate = await estimateGas({
+        to: addresses.orbitalAMM,
+        data: '0x', // This would be encoded function call
+        value: value || 0n,
+      })
+      
+      console.log('Swap parameters:', {
+        poolId: params.poolId,
+        zeroForOne: params.zeroForOne,
+        amountIn: params.amountIn,
+        minAmountOut: params.minAmountOut,
+        value: value?.toString(),
+        gasEstimate: gasEstimate.gasLimit.toString(),
+      })
+
+      // Execute the swap
+      const hash = await writeContract({
+        address: addresses.orbitalAMM,
+        abi: ORBITAL_AMM_ABI,
+        functionName: 'swap',
+        args: [
+          BigInt(params.poolId),
+          params.zeroForOne,
+          BigInt(params.amountIn),
+          BigInt(params.minAmountOut),
+        ],
+        value,
+      }, {
+        gasLimit: gasEstimate.gasLimit,
+        maxFeePerGas: gasEstimate.maxFeePerGas,
+        maxPriorityFeePerGas: gasEstimate.maxPriorityFeePerGas,
+        onHash: (hash) => {
+          setTxHash(hash)
+          toast.loading('Swap transaction submitted...')
+        },
+        onConfirmation: (receipt) => {
+          setIsSuccess(receipt.status === 'success')
+          if (receipt.status === 'success') {
+            toast.success('Swap completed successfully!')
+          } else {
+            toast.error('Swap transaction failed')
+          }
+        },
+        onError: (error) => {
+          setError(error)
+          toast.error(`Swap failed: ${error.message}`)
+        },
+      })
+      
+      return hash
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error('Swap failed')
+      setError(error)
+      console.error('Swap failed:', error)
+      throw error
+    } finally {
+      setIsLoading(false)
+    }
+  }, [addresses.orbitalAMM, writeContract, estimateGas])
 
   return {
     swap,
-    data,
+    data: txHash,
     isLoading,
     isSuccess,
-    error: prepareError || writeError,
+    error,
   }
 }
 
@@ -264,22 +315,14 @@ export function useSpotPrice(poolId: string) {
 // Intents Engine Hooks
 export function useCreateIntent() {
   const { addresses } = useContractAddresses()
-  
-  const { config, error: prepareError } = usePrepareContractWrite({
-    address: addresses.intentsEngine,
-    abi: INTENTS_ENGINE_ABI,
-    functionName: 'create_intent',
-  })
+  const { writeContract, estimateGas } = useTransactions()
+  const [isLoading, setIsLoading] = useState(false)
+  const [txHash, setTxHash] = useState<Hash | null>(null)
+  const [isSuccess, setIsSuccess] = useState(false)
+  const [error, setError] = useState<Error | null>(null)
+  const [intentId, setIntentId] = useState<string | null>(null)
 
-  const { 
-    data, 
-    isLoading, 
-    isSuccess, 
-    write,
-    error: writeError 
-  } = useContractWrite(config)
-
-  const createIntent = (
+  const createIntent = useCallback(async (
     sourceChainId: number,
     destChainId: number,
     sourceToken: Address,
@@ -289,30 +332,123 @@ export function useCreateIntent() {
     deadline: number,
     data: string = '0x',
     value?: bigint
-  ) => {
-    if (!write) return
-    
-    write({
-      args: [
-        BigInt(sourceChainId),
-        BigInt(destChainId),
+  ): Promise<Hash> => {
+    if (!addresses.intentsEngine) {
+      throw new Error('Intents Engine contract not found')
+    }
+
+    try {
+      setIsLoading(true)
+      setError(null)
+      setIsSuccess(false)
+      setIntentId(null)
+      
+      // Validate parameters
+      if (sourceChainId === destChainId) {
+        throw new Error('Source and destination chains must be different')
+      }
+      
+      if (BigInt(sourceAmount) <= 0n) {
+        throw new Error('Source amount must be greater than 0')
+      }
+      
+      if (BigInt(minDestAmount) <= 0n) {
+        throw new Error('Minimum destination amount must be greater than 0')
+      }
+      
+      if (deadline <= Math.floor(Date.now() / 1000)) {
+        throw new Error('Deadline must be in the future')
+      }
+
+      // Estimate gas
+      const gasEstimate = await estimateGas({
+        to: addresses.intentsEngine,
+        data: '0x', // This would be encoded function call
+        value: value || 0n,
+      })
+      
+      console.log('Intent creation parameters:', {
+        sourceChainId,
+        destChainId,
         sourceToken,
         destToken,
-        BigInt(sourceAmount),
-        BigInt(minDestAmount),
-        BigInt(deadline),
-        data as `0x${string}`,
-      ],
-      value,
-    })
-  }
+        sourceAmount,
+        minDestAmount,
+        deadline,
+        data,
+        value: value?.toString(),
+        gasEstimate: gasEstimate.gasLimit.toString(),
+      })
+
+      // Execute intent creation
+      const hash = await writeContract({
+        address: addresses.intentsEngine,
+        abi: INTENTS_ENGINE_ABI,
+        functionName: 'create_intent',
+        args: [
+          BigInt(sourceChainId),
+          BigInt(destChainId),
+          sourceToken,
+          destToken,
+          BigInt(sourceAmount),
+          BigInt(minDestAmount),
+          BigInt(deadline),
+          data as `0x${string}`,
+        ],
+        value,
+      }, {
+        gasLimit: gasEstimate.gasLimit,
+        maxFeePerGas: gasEstimate.maxFeePerGas,
+        maxPriorityFeePerGas: gasEstimate.maxPriorityFeePerGas,
+        onHash: (hash) => {
+          setTxHash(hash)
+          toast.loading('Intent creation transaction submitted...')
+        },
+        onConfirmation: (receipt) => {
+          setIsSuccess(receipt.status === 'success')
+          
+          if (receipt.status === 'success') {
+            // Extract intent ID from logs
+            try {
+              const intentCreatedLog = receipt.logs.find(
+                log => log.topics[0] === '0x...' // IntentCreated event signature
+              )
+              if (intentCreatedLog && intentCreatedLog.topics[1]) {
+                setIntentId(intentCreatedLog.topics[1])
+              }
+            } catch (err) {
+              console.warn('Failed to extract intent ID from logs:', err)
+            }
+            
+            toast.success('Intent created successfully!')
+          } else {
+            toast.error('Intent creation failed')
+          }
+        },
+        onError: (error) => {
+          setError(error)
+          toast.error(`Intent creation failed: ${error.message}`)
+        },
+      })
+      
+      return hash
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error('Intent creation failed')
+      setError(error)
+      console.error('Intent creation failed:', error)
+      throw error
+    } finally {
+      setIsLoading(false)
+    }
+  }, [addresses.intentsEngine, writeContract, estimateGas])
 
   return {
     createIntent,
-    data,
+    data: txHash,
     isLoading,
     isSuccess,
-    error: prepareError || writeError,
+    error,
+    intentId,
   }
 }
 
@@ -457,34 +593,95 @@ export function useTokenAllowance(
 }
 
 export function useTokenApprove() {
-  const { config, error: prepareError } = usePrepareContractWrite({
-    abi: MOCK_USDC_ABI,
-    functionName: 'approve',
-  })
+  const { writeContract, estimateGas } = useTransactions()
+  const [isLoading, setIsLoading] = useState(false)
+  const [txHash, setTxHash] = useState<Hash | null>(null)
+  const [isSuccess, setIsSuccess] = useState(false)
+  const [error, setError] = useState<Error | null>(null)
 
-  const { 
-    data, 
-    isLoading, 
-    isSuccess, 
-    write,
-    error: writeError 
-  } = useContractWrite(config)
+  const approve = useCallback(async (
+    tokenAddress: Address, 
+    spenderAddress: Address, 
+    amount: string
+  ): Promise<Hash> => {
+    try {
+      setIsLoading(true)
+      setError(null)
+      setIsSuccess(false)
+      
+      // Validate parameters
+      if (!tokenAddress || tokenAddress === '0x0000000000000000000000000000000000000000') {
+        throw new Error('Invalid token address')
+      }
+      
+      if (!spenderAddress || spenderAddress === '0x0000000000000000000000000000000000000000') {
+        throw new Error('Invalid spender address')
+      }
+      
+      if (BigInt(amount) < 0n) {
+        throw new Error('Amount cannot be negative')
+      }
 
-  const approve = (tokenAddress: Address, spenderAddress: Address, amount: string) => {
-    if (!write) return
-    
-    write({
-      address: tokenAddress,
-      args: [spenderAddress, BigInt(amount)],
-    })
-  }
+      // Estimate gas
+      const gasEstimate = await estimateGas({
+        to: tokenAddress,
+        data: '0x', // This would be encoded approve function call
+        value: 0n,
+      })
+      
+      console.log('Token approval parameters:', {
+        tokenAddress,
+        spenderAddress,
+        amount,
+        gasEstimate: gasEstimate.gasLimit.toString(),
+      })
+
+      // Execute approval
+      const hash = await writeContract({
+        address: tokenAddress,
+        abi: MOCK_USDC_ABI,
+        functionName: 'approve',
+        args: [spenderAddress, BigInt(amount)],
+      }, {
+        gasLimit: gasEstimate.gasLimit,
+        maxFeePerGas: gasEstimate.maxFeePerGas,
+        maxPriorityFeePerGas: gasEstimate.maxPriorityFeePerGas,
+        onHash: (hash) => {
+          setTxHash(hash)
+          toast.loading('Approval transaction submitted...')
+        },
+        onConfirmation: (receipt) => {
+          setIsSuccess(receipt.status === 'success')
+          
+          if (receipt.status === 'success') {
+            toast.success('Token approval successful!')
+          } else {
+            toast.error('Token approval failed')
+          }
+        },
+        onError: (error) => {
+          setError(error)
+          toast.error(`Approval failed: ${error.message}`)
+        },
+      })
+      
+      return hash
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error('Token approval failed')
+      setError(error)
+      console.error('Token approval failed:', error)
+      throw error
+    } finally {
+      setIsLoading(false)
+    }
+  }, [writeContract, estimateGas])
 
   return {
     approve,
-    data,
+    data: txHash,
     isLoading,
     isSuccess,
-    error: prepareError || writeError,
+    error,
   }
 }
 

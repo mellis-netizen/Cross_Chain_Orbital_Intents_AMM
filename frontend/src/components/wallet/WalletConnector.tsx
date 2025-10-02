@@ -75,7 +75,16 @@ export function WalletConnector() {
             <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
               <div>
                 <div className="text-sm text-muted-foreground">Connected with</div>
-                <div className="font-medium">MetaMask</div>
+                <div className="flex items-center space-x-2">
+                  <div className="font-medium">
+                    {connectors.find(c => c.ready)?.name || 'Unknown Wallet'}
+                  </div>
+                  {isCorrectNetwork ? (
+                    <CheckCircle className="h-4 w-4 text-success-600" />
+                  ) : (
+                    <AlertTriangle className="h-4 w-4 text-warning-600" />
+                  )}
+                </div>
               </div>
               <Button
                 variant="ghost"

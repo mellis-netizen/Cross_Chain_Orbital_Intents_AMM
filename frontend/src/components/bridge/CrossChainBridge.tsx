@@ -12,16 +12,23 @@ import {
   Shield,
   Zap,
   Route,
-  Info
+  Info,
+  Copy,
+  ArrowRight
 } from 'lucide-react'
-import { Card } from '@/components/ui/Card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
 import { Modal } from '@/components/ui/Modal'
-import { useCreateIntent, useIntent } from '@/hooks/useContracts'
-import { useWallet } from '@/hooks/useWeb3'
+import { Progress } from '@/components/ui/Progress'
+import { TransactionModal, TransactionStep } from '@/components/ui/TransactionModal'
+import { useCreateIntent, useIntent, useTokenBalance, useTokenAllowance, useTokenApprove } from '@/hooks/useContracts'
+import { useWallet, useTransactionStatus, useGasPrice, useTokenBalances } from '@/hooks/useWeb3'
+import useCrossChainBridge from '@/hooks/useCrossChainBridge'
+import useTransactionMonitor from '@/hooks/useTransactionMonitor'
 import { formatUnits, parseUnits } from 'viem'
+import { formatTokenAmount, parseTokenAmount, getExplorerUrl, copyToClipboard, truncateAddress } from '@/utils'
 import toast from 'react-hot-toast'
 
 interface ChainConfig {

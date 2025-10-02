@@ -9,8 +9,10 @@ import { Badge } from '@/components/ui/Badge'
 import { TokenSelector } from './TokenSelector'
 import { SwapSettings } from './SwapSettings'
 import { PriceImpactWarning } from './PriceImpactWarning'
-import { useWallet } from '@/hooks/useWeb3'
-import { useSwapQuote, usePoolByTokens, useSwap } from '@/hooks/useContracts'
+import { useWallet, useTokenBalances, useGasPrice } from '@/hooks/useWeb3'
+import { useSwapQuote, usePoolByTokens, useSwap, useTokenApprove, useTokenAllowance } from '@/hooks/useContracts'
+import useTransactions from '@/hooks/useTransactions'
+import useTransactionMonitor from '@/hooks/useTransactionMonitor'
 import { Token, SwapFormData } from '@/types'
 import { ETH_TOKEN, USDC_TOKEN, DEFAULT_SLIPPAGE } from '@/constants'
 import { formatTokenAmount, parseTokenAmount, calculatePriceImpact, isValidAmount } from '@/utils'
@@ -25,8 +27,13 @@ export function SwapInterface() {
   })
   const [showSettings, setShowSettings] = useState(false)
   const [isReversed, setIsReversed] = useState(false)
+  const [needsApproval, setNeedsApproval] = useState(false)
+  const [isCheckingApproval, setIsCheckingApproval] = useState(false)
 
   const { address, isConnected, isCorrectNetwork } = useWallet()
+  const { gasPrice, gasPriceGwei } = useGasPrice()
+  const { estimateGas } = useTransactions()
+  const { addPendingTransaction } = useTransactionMonitor()
   
   // Get pool information
   const { 
@@ -52,6 +59,20 @@ export function SwapInterface() {
 
   // Swap execution
   const { swap, isLoading: swapLoading, isSuccess, error } = useSwap()
+  const { approve, isLoading: approveLoading } = useTokenApprove()
+  
+  // Token balances
+  const { balances } = useTokenBalances(
+    address,
+    [formData.fromToken?.address, formData.toToken?.address].filter(Boolean) as string[]
+  )
+  
+  // Token allowance for approval checking
+  const { allowance, refetch: refetchAllowance } = useTokenAllowance(
+    formData.fromToken?.address || '0x0',
+    address,
+    '0x0000000000000000000000000000000000000000' // This would be the AMM contract address
+  )
 
   // Calculate price impact
   const priceImpact = pool && formData.fromAmount && amountOut ? 
@@ -94,13 +115,70 @@ export function SwapInterface() {
     setShowSettings(false)
   }, [])
 
-  // Execute swap
+  // Check if approval is needed
+  const checkApprovalNeeded = useCallback(async () => {
+    if (!formData.fromToken || !formData.fromAmount || !address || 
+        formData.fromToken.address === ETH_TOKEN.address) {
+      setNeedsApproval(false)
+      return
+    }
+
+    setIsCheckingApproval(true)
+    try {
+      const amountToSwap = parseTokenAmount(formData.fromAmount, formData.fromToken.decimals)
+      const currentAllowance = BigInt(allowance)
+      setNeedsApproval(currentAllowance < amountToSwap)
+    } catch (error) {
+      console.error('Error checking approval:', error)
+      setNeedsApproval(false)
+    } finally {
+      setIsCheckingApproval(false)
+    }
+  }, [formData.fromToken, formData.fromAmount, address, allowance])
+
+  // Handle token approval
+  const handleApproval = useCallback(async () => {
+    if (!formData.fromToken || !formData.fromAmount || !address) {
+      toast.error('Missing approval parameters')
+      return
+    }
+
+    try {
+      const amountToApprove = parseTokenAmount(formData.fromAmount, formData.fromToken.decimals)
+      const spenderAddress = '0x0000000000000000000000000000000000000000' // AMM contract address
+      
+      toast.loading('Requesting token approval...')
+      
+      const hash = await approve(
+        formData.fromToken.address,
+        spenderAddress,
+        amountToApprove.toString()
+      )
+      
+      addPendingTransaction(hash, 'approval', `Approve ${formData.fromToken.symbol}`, 1)
+      
+      // Refresh allowance after approval
+      setTimeout(() => {
+        refetchAllowance()
+        checkApprovalNeeded()
+      }, 3000)
+      
+    } catch (error) {
+      console.error('Approval failed:', error)
+      toast.error('Token approval failed')
+    }
+  }, [formData.fromToken, formData.fromAmount, address, approve, addPendingTransaction, refetchAllowance, checkApprovalNeeded])
+
+  // Execute swap with enhanced error handling and gas estimation
   const handleSwap = useCallback(async () => {
     if (!isConnected || !isCorrectNetwork || !poolId || !formData.fromAmount) {
       return
     }
 
     try {
+      // Show loading toast
+      toast.loading('Preparing swap transaction...')
+      
       const minAmountOut = BigInt(amountOut) * BigInt(10000 - formData.slippage * 100) / BigInt(10000)
       
       const swapParams = {
@@ -114,10 +192,28 @@ export function SwapInterface() {
         ? parseTokenAmount(formData.fromAmount, formData.fromToken.decimals)
         : undefined
 
-      swap(swapParams, value)
+      // Estimate gas before execution
+      try {
+        await estimateGas({
+          to: '0x0000000000000000000000000000000000000000', // AMM contract address
+          data: '0x',
+          value: value || 0n,
+        })
+      } catch (gasError) {
+        toast.error('Transaction would fail. Please check your parameters.')
+        return
+      }
+
+      const hash = await swap(swapParams, value)
+      
+      if (hash) {
+        addPendingTransaction(hash, 'swap', `Swap ${formData.fromToken?.symbol} for ${formData.toToken?.symbol}`, 2)
+      }
+      
     } catch (error) {
       console.error('Swap failed:', error)
-      toast.error('Swap failed. Please try again.')
+      const errorMessage = error instanceof Error ? error.message : 'Swap failed. Please try again.'
+      toast.error(errorMessage)
     }
   }, [
     isConnected,
@@ -126,7 +222,9 @@ export function SwapInterface() {
     formData,
     amountOut,
     isReversed,
-    swap
+    swap,
+    estimateGas,
+    addPendingTransaction
   ])
 
   // Show success toast when swap completes
@@ -136,6 +234,11 @@ export function SwapInterface() {
       setFormData(prev => ({ ...prev, fromAmount: '' }))
     }
   }, [isSuccess])
+
+  // Check approval when form data changes
+  useEffect(() => {
+    checkApprovalNeeded()
+  }, [checkApprovalNeeded])
 
   // Show error toast
   useEffect(() => {
@@ -151,7 +254,8 @@ export function SwapInterface() {
     formData.fromAmount && 
     isValidAmount(formData.fromAmount) &&
     poolId &&
-    amountOut !== '0'
+    amountOut !== '0' &&
+    !needsApproval
 
   const outputAmount = formatTokenAmount(amountOut, formData.toToken?.decimals)
 
@@ -182,7 +286,10 @@ export function SwapInterface() {
               <label className="text-sm font-medium text-muted-foreground">From</label>
               {formData.fromToken && (
                 <div className="text-xs text-muted-foreground">
-                  Balance: 0.0000 {formData.fromToken.symbol}
+                  Balance: {formatTokenAmount(
+                    balances[formData.fromToken.address] || '0',
+                    formData.fromToken.decimals
+                  )} {formData.fromToken.symbol}
                 </div>
               )}
             </div>
@@ -221,7 +328,10 @@ export function SwapInterface() {
               <label className="text-sm font-medium text-muted-foreground">To</label>
               {formData.toToken && (
                 <div className="text-xs text-muted-foreground">
-                  Balance: 0.0000 {formData.toToken.symbol}
+                  Balance: {formatTokenAmount(
+                    balances[formData.toToken.address] || '0',
+                    formData.toToken.decimals
+                  )} {formData.toToken.symbol}
                 </div>
               )}
             </div>
@@ -261,6 +371,10 @@ export function SwapInterface() {
                 <span>{formData.slippage}%</span>
               </div>
               <div className="flex justify-between">
+                <span className="text-muted-foreground">Network Fee</span>
+                <span>{gasPriceGwei} gwei</span>
+              </div>
+              <div className="flex justify-between">
                 <span className="text-muted-foreground">Minimum Received</span>
                 <span>
                   {formatTokenAmount(
@@ -278,24 +392,40 @@ export function SwapInterface() {
             </div>
           )}
 
-          {/* Swap Button */}
-          <Button
-            onClick={handleSwap}
-            disabled={!canSwap}
-            loading={swapLoading || quoteLoading}
-            variant="orbital"
-            size="lg"
-            className="w-full"
-          >
-            {!isConnected ? 'Connect Wallet' :
-             !isCorrectNetwork ? 'Wrong Network' :
-             !formData.fromToken || !formData.toToken ? 'Select Tokens' :
-             !formData.fromAmount ? 'Enter Amount' :
-             !isValidAmount(formData.fromAmount) ? 'Invalid Amount' :
-             !poolId ? 'Pool Not Found' :
-             isHighPriceImpact ? 'Swap Anyway' :
-             'Swap'}
-          </Button>
+          {/* Approval/Swap Buttons */}
+          {needsApproval && formData.fromToken?.address !== ETH_TOKEN.address ? (
+            <Button
+              onClick={handleApproval}
+              disabled={!isConnected || !isCorrectNetwork || approveLoading || isCheckingApproval}
+              loading={approveLoading || isCheckingApproval}
+              variant="orbital"
+              size="lg"
+              className="w-full"
+            >
+              {approveLoading ? 'Approving...' :
+               isCheckingApproval ? 'Checking...' :
+               `Approve ${formData.fromToken?.symbol}`}
+            </Button>
+          ) : (
+            <Button
+              onClick={handleSwap}
+              disabled={!canSwap || needsApproval}
+              loading={swapLoading || quoteLoading}
+              variant="orbital"
+              size="lg"
+              className="w-full"
+            >
+              {!isConnected ? 'Connect Wallet' :
+               !isCorrectNetwork ? 'Wrong Network' :
+               !formData.fromToken || !formData.toToken ? 'Select Tokens' :
+               !formData.fromAmount ? 'Enter Amount' :
+               !isValidAmount(formData.fromAmount) ? 'Invalid Amount' :
+               !poolId ? 'Pool Not Found' :
+               needsApproval ? 'Approval Required' :
+               isHighPriceImpact ? 'Swap Anyway' :
+               'Swap'}
+            </Button>
+          )}
 
           {/* Pool Status */}
           {poolId && pool && (
@@ -314,6 +444,19 @@ export function SwapInterface() {
         onClose={() => setShowSettings(false)}
         currentSlippage={formData.slippage}
         onUpdate={handleSettingsUpdate}
+      />
+
+      {/* Transaction Modal */}
+      <TransactionModal
+        isOpen={showTxModal}
+        onClose={handleCloseModal}
+        title="Swap Transaction"
+        steps={txSteps}
+        currentStepIndex={currentStepIndex}
+        txHash={swapTxData?.hash}
+        onRetry={handleRetry}
+        showGasEstimate={true}
+        gasEstimate={gasEstimate}
       />
     </div>
   )

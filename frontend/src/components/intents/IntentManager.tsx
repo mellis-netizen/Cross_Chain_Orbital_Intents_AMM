@@ -14,15 +14,18 @@ import {
   Activity,
   User,
   DollarSign,
-  Shield
+  Shield,
+  Plus
 } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Modal } from '@/components/ui/Modal'
+import { IntentCreationModal } from './IntentCreationModal'
 import { useWallet } from '@/hooks/useWeb3'
 import { useIntent, useIntentExecution, useCancelIntent } from '@/hooks/useContracts'
 import { formatUnits } from 'viem'
+import { getExplorerUrl } from '@/utils'
 import toast from 'react-hot-toast'
 
 interface Intent {
@@ -108,6 +111,7 @@ export function IntentManager() {
   const [userIntents, setUserIntents] = useState<Intent[]>([])
   const [selectedIntent, setSelectedIntent] = useState<Intent | null>(null)
   const [showDetailsModal, setShowDetailsModal] = useState(false)
+  const [showCreateModal, setShowCreateModal] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
 
   // Load user intents (mock data for now)

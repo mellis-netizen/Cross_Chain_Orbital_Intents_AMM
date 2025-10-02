@@ -75,24 +75,70 @@ export function useBalance(address?: string) {
 export function useTokenBalances(address?: string, tokenAddresses: string[] = []) {
   const [balances, setBalances] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const fetchBalances = useCallback(async () => {
     if (!address || tokenAddresses.length === 0) return
 
     setLoading(true)
+    setError(null)
+    
     try {
-      // In a real implementation, this would batch call the contract
-      // For now, we'll simulate the data
-      const mockBalances: Record<string, string> = {}
+      const { createPublicClient, http } = await import('viem')
+      const { HOLESKY_CHAIN_ID } = await import('@/constants')
+      const { MOCK_USDC_ABI } = await import('@/lib/contracts')
       
-      for (const tokenAddress of tokenAddresses) {
-        // Mock balance - in real implementation, use contract calls
-        mockBalances[tokenAddress] = '1000000000000000000' // 1 token
-      }
+      // Create public client for reading
+      const client = createPublicClient({
+        chain: {
+          id: HOLESKY_CHAIN_ID,
+          name: 'Holesky',
+          network: 'holesky',
+          nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+          rpcUrls: {
+            default: { http: ['https://crimson-attentive-emerald.ethereum-holesky.quiknode.pro/2f9f0ed63e2c2adf0adaca0fb431a457f86cf7ad/'] },
+            public: { http: ['https://crimson-attentive-emerald.ethereum-holesky.quiknode.pro/2f9f0ed63e2c2adf0adaca0fb431a457f86cf7ad/'] },
+          },
+          blockExplorers: {
+            default: { name: 'Etherscan', url: 'https://holesky.etherscan.io' },
+          },
+        },
+        transport: http(),
+      })
       
-      setBalances(mockBalances)
-    } catch (error) {
-      console.error('Failed to fetch token balances:', error)
+      const balancePromises = tokenAddresses.map(async (tokenAddress) => {
+        try {
+          if (tokenAddress === '0x0000000000000000000000000000000000000000') {
+            // ETH balance
+            const balance = await client.getBalance({ address: address as `0x${string}` })
+            return { tokenAddress, balance: balance.toString() }
+          } else {
+            // ERC20 token balance
+            const balance = await client.readContract({
+              address: tokenAddress as `0x${string}`,
+              abi: MOCK_USDC_ABI,
+              functionName: 'balanceOf',
+              args: [address as `0x${string}`],
+            })
+            return { tokenAddress, balance: (balance as bigint).toString() }
+          }
+        } catch (err) {
+          console.warn(`Failed to fetch balance for token ${tokenAddress}:`, err)
+          return { tokenAddress, balance: '0' }
+        }
+      })
+      
+      const results = await Promise.all(balancePromises)
+      const newBalances: Record<string, string> = {}
+      
+      results.forEach(({ tokenAddress, balance }) => {
+        newBalances[tokenAddress] = balance
+      })
+      
+      setBalances(newBalances)
+    } catch (err) {
+      console.error('Failed to fetch token balances:', err)
+      setError(err instanceof Error ? err.message : 'Failed to fetch balances')
     } finally {
       setLoading(false)
     }
@@ -105,6 +151,7 @@ export function useTokenBalances(address?: string, tokenAddresses: string[] = []
   return {
     balances,
     loading,
+    error,
     refetch: fetchBalances,
   }
 }
@@ -179,16 +226,49 @@ export function useTransactionStatus() {
 
 export function useGasPrice() {
   const [gasPrice, setGasPrice] = useState<string>('0')
+  const [gasPriceGwei, setGasPriceGwei] = useState<string>('0')
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const fetchGasPrice = useCallback(async () => {
     setLoading(true)
+    setError(null)
+    
     try {
-      // In a real implementation, fetch from RPC
-      // For now, simulate gas price
+      const { createPublicClient, http, formatGwei } = await import('viem')
+      const { HOLESKY_CHAIN_ID } = await import('@/constants')
+      
+      // Create public client for reading
+      const client = createPublicClient({
+        chain: {
+          id: HOLESKY_CHAIN_ID,
+          name: 'Holesky',
+          network: 'holesky',
+          nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+          rpcUrls: {
+            default: { http: ['https://crimson-attentive-emerald.ethereum-holesky.quiknode.pro/2f9f0ed63e2c2adf0adaca0fb431a457f86cf7ad/'] },
+            public: { http: ['https://crimson-attentive-emerald.ethereum-holesky.quiknode.pro/2f9f0ed63e2c2adf0adaca0fb431a457f86cf7ad/'] },
+          },
+          blockExplorers: {
+            default: { name: 'Etherscan', url: 'https://holesky.etherscan.io' },
+          },
+        },
+        transport: http(),
+      })
+      
+      // Get current gas price from the network
+      const gasPriceResult = await client.getGasPrice()
+      const gasPriceWei = gasPriceResult.toString()
+      const gasPriceGweiValue = formatGwei(gasPriceResult)
+      
+      setGasPrice(gasPriceWei)
+      setGasPriceGwei(gasPriceGweiValue)
+    } catch (err) {
+      console.error('Failed to fetch gas price:', err)
+      setError(err instanceof Error ? err.message : 'Failed to fetch gas price')
+      // Fallback to reasonable default for Holesky
       setGasPrice('20000000000') // 20 gwei
-    } catch (error) {
-      console.error('Failed to fetch gas price:', error)
+      setGasPriceGwei('20')
     } finally {
       setLoading(false)
     }
@@ -202,7 +282,9 @@ export function useGasPrice() {
 
   return {
     gasPrice,
+    gasPriceGwei,
     loading,
+    error,
     refetch: fetchGasPrice,
   }
 }

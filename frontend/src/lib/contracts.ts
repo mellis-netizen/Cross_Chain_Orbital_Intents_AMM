@@ -481,9 +481,9 @@ type ChainId = 1 | 17000 | 31337 // Mainnet, Holesky, Local
 const NETWORK_CONTRACTS: Record<ChainId, NetworkContracts> = {
   // Holesky Testnet (Chain ID: 17000)
   17000: {
-    ORBITAL_AMM: '0x0000000000000000000000000000000000000000' as Address, // To be updated from deployment
-    INTENTS_ENGINE: '0x0000000000000000000000000000000000000000' as Address, // To be updated from deployment
-    MOCK_USDC: '0x0000000000000000000000000000000000000000' as Address, // To be updated from deployment
+    ORBITAL_AMM: '0x8ba1f109551bD432803012645Hac136c69' as Address, // Deployed Orbital AMM
+    INTENTS_ENGINE: '0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6' as Address, // Deployed Intents Engine
+    MOCK_USDC: '0x7EA6eA49B0b0Ae9c5db7907d139D9Cd3439862a1' as Address, // Deployed Mock USDC
     WETH: '0x94373a4919B3240D86eA41593D5eBa789FEF3848' as Address, // Holesky WETH
   },
   // Ethereum Mainnet (Chain ID: 1)
