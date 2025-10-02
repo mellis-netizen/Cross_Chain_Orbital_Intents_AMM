@@ -1,7 +1,7 @@
 [profile.default]
 src = "contracts"
 out = "out"
-libs = ["lib"]
+libs = ["lib", "dependencies"]
 test = "test"
 cache_path = "cache"
 force = false
@@ -48,3 +48,6 @@ mainnet = { key = "${ETHERSCAN_API_KEY}" }
 holesky = { key = "${ETHERSCAN_API_KEY}" }
 polygon = { key = "${POLYGONSCAN_API_KEY}" }
 arbitrum = { key = "${ARBISCAN_API_KEY}" }
+
+[dependencies]
+forge-std = "1.10.0"
