@@ -1,0 +1,219 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15
+    container_name: orbital-postgres
+    environment:
+      POSTGRES_DB: orbital_amm
+      POSTGRES_USER: orbital_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-orbital_password_change_in_prod}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - orbital-network
+    restart: unless-stopped
+    command: |
+      postgres -c max_connections=500
+               -c shared_preload_libraries=pg_stat_statements
+               -c log_statement=all
+               -c log_min_duration_statement=1000
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: orbital-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - orbital-network
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 4gb --maxmemory-policy allkeys-lru
+
+  # Orbital AMM API Service
+  api:
+    build:
+      context: ./backend/api
+      dockerfile: Dockerfile
+    container_name: orbital-api
+    ports:
+      - "8080:8080"
+      - "8081:8081"  # WebSocket port
+    environment:
+      DATABASE_URL: postgresql://orbital_user:${POSTGRES_PASSWORD:-orbital_password_change_in_prod}@postgres:5432/orbital_amm
+      REDIS_URL: redis://redis:6379
+      RUST_LOG: info
+      API_PORT: 8080
+      WEBSOCKET_PORT: 8081
+      JWT_SECRET: ${JWT_SECRET:-your-secure-jwt-secret-change-in-production}
+      ETHEREUM_RPC_URL: ${ETHEREUM_RPC_URL:-https://mainnet.infura.io/v3/your-project-id}
+      ARBITRUM_RPC_URL: ${ARBITRUM_RPC_URL:-https://arb1.arbitrum.io/rpc}
+      OPTIMISM_RPC_URL: ${OPTIMISM_RPC_URL:-https://mainnet.optimism.io}
+      BASE_RPC_URL: ${BASE_RPC_URL:-https://mainnet.base.org}
+      POLYGON_RPC_URL: ${POLYGON_RPC_URL:-https://polygon-rpc.com}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      RATE_LIMIT_REQUESTS: 1000
+      RATE_LIMIT_WINDOW: 60
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - orbital-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Indexer Service
+  indexer:
+    build:
+      context: ./backend/indexer
+      dockerfile: Dockerfile
+    container_name: orbital-indexer
+    environment:
+      DATABASE_URL: postgresql://orbital_user:${POSTGRES_PASSWORD:-orbital_password_change_in_prod}@postgres:5432/orbital_amm
+      REDIS_URL: redis://redis:6379
+      RUST_LOG: info
+      ETHEREUM_RPC_URL: ${ETHEREUM_RPC_URL:-https://mainnet.infura.io/v3/your-project-id}
+      ARBITRUM_RPC_URL: ${ARBITRUM_RPC_URL:-https://arb1.arbitrum.io/rpc}
+      OPTIMISM_RPC_URL: ${OPTIMISM_RPC_URL:-https://mainnet.optimism.io}
+      BASE_RPC_URL: ${BASE_RPC_URL:-https://mainnet.base.org}
+      POLYGON_RPC_URL: ${POLYGON_RPC_URL:-https://polygon-rpc.com}
+      INDEXER_START_BLOCK: ${INDEXER_START_BLOCK:-latest}
+      BATCH_SIZE: 100
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - orbital-network
+    restart: unless-stopped
+
+  # Solver Service
+  solver:
+    build:
+      context: ./core/solver
+      dockerfile: Dockerfile
+    container_name: orbital-solver
+    environment:
+      DATABASE_URL: postgresql://orbital_user:${POSTGRES_PASSWORD:-orbital_password_change_in_prod}@postgres:5432/orbital_amm
+      REDIS_URL: redis://redis:6379
+      RUST_LOG: info
+      SOLVER_PRIVATE_KEY: ${SOLVER_PRIVATE_KEY}
+      ETHEREUM_RPC_URL: ${ETHEREUM_RPC_URL:-https://mainnet.infura.io/v3/your-project-id}
+      ARBITRUM_RPC_URL: ${ARBITRUM_RPC_URL:-https://arb1.arbitrum.io/rpc}
+      MIN_PROFIT_THRESHOLD: 0.01
+      MAX_GAS_PRICE: 50000000000
+      SOLVER_BOND_AMOUNT: 1000000000000000000  # 1 ETH in wei
+    depends_on:
+      - postgres
+      - redis
+      - api
+    networks:
+      - orbital-network
+    restart: unless-stopped
+
+  # Prometheus Monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: orbital-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    networks:
+      - orbital-network
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+
+  # Grafana Dashboard
+  grafana:
+    image: grafana/grafana:latest
+    container_name: orbital-grafana
+    ports:
+      - "3001:3000"  # Avoid conflict with frontend
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    networks:
+      - orbital-network
+    restart: unless-stopped
+
+  # NGINX Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: orbital-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - api
+    networks:
+      - orbital-network
+    restart: unless-stopped
+
+  # Redis Exporter for Prometheus
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: orbital-redis-exporter
+    ports:
+      - "9121:9121"
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    depends_on:
+      - redis
+    networks:
+      - orbital-network
+    restart: unless-stopped
+
+  # Postgres Exporter for Prometheus
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: orbital-postgres-exporter
+    ports:
+      - "9187:9187"
+    environment:
+      DATA_SOURCE_NAME: postgresql://orbital_user:${POSTGRES_PASSWORD:-orbital_password_change_in_prod}@postgres:5432/orbital_amm?sslmode=disable
+    depends_on:
+      - postgres
+    networks:
+      - orbital-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  orbital-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
