@@ -17,6 +17,7 @@
     "test:component": "jest --testPathPattern=components",
     "test:integration": "jest --testPathPattern=integration",
     "deploy": "npm run build",
+    "postinstall": "echo 'Dependencies installed with legacy peer deps support'",
     "build:netlify": "npm ci --legacy-peer-deps && npm run build"
   },
   "dependencies": {
