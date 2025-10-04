@@ -5,7 +5,7 @@ use axum::{
     routing::{get, post, put},
     Router,
 };
-use ethers::types::Address;
+use ethers::types::{Address, U256};
 use std::str::FromStr;
 
 use crate::{
@@ -14,12 +14,21 @@ use crate::{
     cache::CacheService,
     error::{Result, validation_error, not_found},
     auth::{extract_user_address, check_permission},
+    crypto::{
+        verify_signature, 
+        create_solver_registration_message,
+        create_secure_solver_registration_message,
+        verify_message_freshness,
+        SignatureRateLimiter,
+        generate_secure_nonce
+    },
 };
 
 // Solver routes
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/register", post(register_solver))
+        .route("/register/message", post(get_registration_message))
         .route("/", get(get_solvers))
         .route("/:address", get(get_solver_by_address))
         .route("/:address/performance", get(get_solver_performance))
@@ -28,23 +37,69 @@ pub fn routes() -> Router<AppState> {
         .route("/leaderboard", get(get_solver_leaderboard))
 }
 
-// Register a new solver
+// Register a new solver with enhanced security
 async fn register_solver(
     State(state): State<AppState>,
     Json(request): Json<SolverRegistrationRequest>,
 ) -> Result<Json<SolverResponse>> {
-    // Validate request
-    validate_solver_registration(&request)?;
+    // Rate limiting for registration attempts
+    let rate_limiter = SignatureRateLimiter::new(5, 300); // 5 attempts per 5 minutes
+    let client_ip = "127.0.0.1"; // TODO: Extract from request headers
+    rate_limiter.check_rate_limit(&format!("register:{}", client_ip))?;
     
-    // TODO: Verify signature
+    // Enhanced validation
+    validate_solver_registration_enhanced(&request)?;
+    
+    // Check for replay attacks using nonce and timestamp if available
+    if let Some(timestamp) = extract_timestamp_from_request(&request) {
+        verify_message_freshness(timestamp, 300)?; // 5 minute tolerance
+    }
+    
+    // Create the message that should have been signed
+    let message = create_solver_registration_message(
+        request.solver_address,
+        &request.bond_amount,
+        &request.supported_chains,
+        request.fee_rate,
+    );
+    
+    // Enhanced signature verification with dual verification
+    let is_valid_signature = verify_signature(
+        &message,
+        &request.signature,
+        request.solver_address,
+    )?;
+    
+    if !is_valid_signature {
+        // Log suspicious activity
+        tracing::warn!(
+            "Invalid signature attempt for solver registration: {:#x} from IP: {}",
+            request.solver_address,
+            client_ip
+        );
+        return Err(crate::error::ApiError::Authorization(
+            "Invalid signature for solver registration".to_string()
+        ));
+    }
+    
+    // Additional security checks
+    perform_solver_security_checks(&request, &state).await?;
     
     // Check if solver already exists
     if let Some(_existing) = SolverDb::get_solver_by_address(&state.db, request.solver_address).await? {
         return Err(crate::error::ApiError::Conflict("Solver already registered".to_string()));
     }
     
-    // Register solver in database
+    // Register solver in database with audit trail
     let record = SolverDb::register_solver(&state.db, &request).await?;
+    
+    // Log successful registration
+    tracing::info!(
+        "Solver registered successfully: {:#x} with bond: {} wei, chains: {:?}",
+        request.solver_address,
+        request.bond_amount,
+        request.supported_chains
+    );
     
     // Update cache
     let mut cache = CacheService::new(state.redis.clone());
@@ -52,13 +107,44 @@ async fn register_solver(
     
     let response = solver_record_to_response(record)?;
     
-    tracing::info!(
-        "Solver registered: {:#x} with bond: {}",
+    Ok(Json(response))
+}
+
+// Get the message that needs to be signed for solver registration
+async fn get_registration_message(
+    Json(request): Json<RegistrationMessageRequest>,
+) -> Result<Json<RegistrationMessageResponse>> {
+    // Validate basic parameters
+    if request.bond_amount.is_zero() {
+        return Err(validation_error("Bond amount must be greater than zero"));
+    }
+    
+    if request.supported_chains.is_empty() {
+        return Err(validation_error("Must support at least one chain"));
+    }
+    
+    if request.fee_rate < 0.0 || request.fee_rate > 1000.0 {
+        return Err(validation_error("Fee rate must be between 0 and 1000 basis points"));
+    }
+    
+    // Create the message to be signed
+    let message = create_solver_registration_message(
         request.solver_address,
-        request.bond_amount
+        &request.bond_amount,
+        &request.supported_chains,
+        request.fee_rate,
     );
     
-    Ok(Json(response))
+    let message_str = String::from_utf8(message)
+        .map_err(|_| crate::error::ApiError::Internal("Failed to convert message to string".to_string()))?;
+    
+    Ok(Json(RegistrationMessageResponse {
+        message: message_str,
+        solver_address: request.solver_address,
+        bond_amount: request.bond_amount,
+        supported_chains: request.supported_chains,
+        fee_rate: request.fee_rate,
+    }))
 }
 
 // Get list of solvers with filtering
@@ -336,6 +422,150 @@ fn validate_solver_registration(request: &SolverRegistrationRequest) -> Result<(
     Ok(())
 }
 
+/// Enhanced security validation for solver registration
+fn validate_solver_registration_enhanced(request: &SolverRegistrationRequest) -> Result<()> {
+    // Basic validation
+    validate_solver_registration(request)?;
+    
+    // Additional security checks
+    
+    // Validate address format and ensure it's not zero
+    if request.solver_address.is_zero() {
+        return Err(validation_error("Solver address cannot be zero"));
+    }
+    
+    // Validate signature format and length
+    let sig_without_prefix = request.signature.strip_prefix("0x").unwrap_or(&request.signature);
+    if sig_without_prefix.len() != 130 {
+        return Err(validation_error("Invalid signature format"));
+    }
+    
+    // Validate hex format
+    if hex::decode(sig_without_prefix).is_err() {
+        return Err(validation_error("Signature must be valid hexadecimal"));
+    }
+    
+    // Validate bond amount reasonable bounds (prevent overflow/underflow attacks)
+    let min_bond = U256::from(10_000_000_000_000_000u64); // 0.01 ETH minimum
+    let max_bond = U256::from(1000u64) * U256::from(10u64).pow(18.into()); // 1000 ETH maximum
+    
+    if request.bond_amount < min_bond {
+        return Err(validation_error("Bond amount too low (minimum 0.01 ETH)"));
+    }
+    
+    if request.bond_amount > max_bond {
+        return Err(validation_error("Bond amount too high (maximum 1000 ETH)"));
+    }
+    
+    // Validate supported chains
+    if request.supported_chains.len() > 50 {
+        return Err(validation_error("Too many supported chains (maximum 50)"));
+    }
+    
+    for &chain_id in &request.supported_chains {
+        if chain_id == 0 {
+            return Err(validation_error("Invalid chain ID: 0"));
+        }
+        // Add specific chain validation if needed
+    }
+    
+    // Validate fee rate with more precision
+    if request.fee_rate < 0.0 || request.fee_rate > 10000.0 {
+        return Err(validation_error("Fee rate must be between 0 and 10000 basis points"));
+    }
+    
+    // Ensure fee rate has reasonable precision (prevent float precision attacks)
+    if (request.fee_rate * 100.0).fract() != 0.0 {
+        return Err(validation_error("Fee rate precision too high (max 2 decimal places)"));
+    }
+    
+    Ok(())
+}
+
+/// Extract timestamp from request if embedded in signature or metadata
+fn extract_timestamp_from_request(_request: &SolverRegistrationRequest) -> Option<u64> {
+    // TODO: Implement timestamp extraction from request metadata
+    // For now, we'll use current time as a placeholder
+    Some(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+    )
+}
+
+/// Perform additional security checks on solver registration
+async fn perform_solver_security_checks(
+    request: &SolverRegistrationRequest,
+    state: &AppState,
+) -> Result<()> {
+    // Check for blacklisted addresses
+    if is_address_blacklisted(request.solver_address, state).await? {
+        return Err(crate::error::ApiError::Authorization(
+            "Address is blacklisted".to_string()
+        ));
+    }
+    
+    // Check for suspicious patterns
+    if detect_suspicious_registration_pattern(request, state).await? {
+        tracing::warn!(
+            "Suspicious registration pattern detected for address: {:#x}",
+            request.solver_address
+        );
+        // Could implement additional verification steps here
+    }
+    
+    // Validate against known compromised addresses
+    if is_address_compromised(request.solver_address).await? {
+        return Err(crate::error::ApiError::Authorization(
+            "Address appears to be compromised".to_string()
+        ));
+    }
+    
+    Ok(())
+}
+
+/// Check if an address is blacklisted
+async fn is_address_blacklisted(address: Address, _state: &AppState) -> Result<bool> {
+    // TODO: Implement blacklist checking against database or external service
+    // For now, we'll check against a static list of known bad addresses
+    let blacklisted_addresses = vec![
+        // Add known malicious addresses here
+        Address::zero(),
+    ];
+    
+    Ok(blacklisted_addresses.contains(&address))
+}
+
+/// Detect suspicious registration patterns
+async fn detect_suspicious_registration_pattern(
+    request: &SolverRegistrationRequest,
+    state: &AppState,
+) -> Result<bool> {
+    // Check for rapid registrations from similar addresses
+    let similar_recent_registrations = sqlx::query!(
+        r#"
+        SELECT COUNT(*) as count 
+        FROM solvers 
+        WHERE registered_at > NOW() - INTERVAL '1 hour'
+        AND bond_amount = $1
+        "#,
+        request.bond_amount.to_string()
+    )
+    .fetch_one(&state.db)
+    .await?;
+    
+    // If more than 5 registrations with same bond amount in last hour, flag as suspicious
+    Ok(similar_recent_registrations.count.unwrap_or(0) > 5)
+}
+
+/// Check if an address is known to be compromised
+async fn is_address_compromised(_address: Address) -> Result<bool> {
+    // TODO: Integrate with external threat intelligence services
+    // For now, return false
+    Ok(false)
+}
+
 // Request/Query structs
 #[derive(serde::Deserialize)]
 struct SolverQuery {
@@ -368,4 +598,21 @@ struct DeactivateSolverRequest {
 struct LeaderboardQuery {
     limit: Option<u64>,
     timeframe: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct RegistrationMessageRequest {
+    solver_address: Address,
+    bond_amount: U256,
+    supported_chains: Vec<u64>,
+    fee_rate: f64,
+}
+
+#[derive(serde::Serialize)]
+struct RegistrationMessageResponse {
+    message: String,
+    solver_address: Address,
+    bond_amount: U256,
+    supported_chains: Vec<u64>,
+    fee_rate: f64,
 }

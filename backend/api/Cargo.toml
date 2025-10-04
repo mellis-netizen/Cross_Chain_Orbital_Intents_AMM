@@ -29,9 +29,13 @@ jsonwebtoken = "9.1"
 sha2 = "0.10"
 rand = "0.8"
 bcrypt = "0.15"
+secp256k1 = { version = "0.29", features = ["recovery", "global-context"] }
+k256 = { version = "0.13", features = ["ecdsa", "sha256"] }
+hex = "0.4"
+constant_time_eq = "0.3"
 
 # Blockchain
-ethers = "2.0"
+ethers = { version = "2.0", features = ["eip712"] }
 alloy = { version = "0.3", features = ["full"] }
 
 # Error handling

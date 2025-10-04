@@ -5,10 +5,12 @@ pub mod models;
 pub mod database;
 pub mod cache;
 pub mod websocket;
+pub mod websocket_benchmarks;
 pub mod metrics;
 pub mod auth;
 pub mod error;
 pub mod config;
+pub mod crypto;
 
 pub use config::Config;
 pub use error::{ApiError, Result};
@@ -83,6 +85,10 @@ pub async fn create_app(config: Config) -> Result<Router> {
 
 pub async fn start_server(config: Config) -> Result<()> {
     let app = create_app(config.clone()).await?;
+    
+    // Start WebSocket health monitoring
+    websocket::start_health_monitoring().await;
+    tracing::info!("WebSocket health monitoring started");
     
     let listener = tokio::net::TcpListener::bind(&config.server_address)
         .await

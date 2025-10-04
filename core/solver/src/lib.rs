@@ -7,6 +7,9 @@ pub mod monitoring;
 #[cfg(test)]
 mod executor_tests;
 
+#[cfg(test)]
+mod tests;
+
 use async_trait::async_trait;
 use ethers::types::{Address, U256, H256};
 use intents_engine::intent::{Intent, IntentExecution};
@@ -37,11 +40,11 @@ pub type Result<T> = std::result::Result<T, SolverError>;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SolverConfig {
     pub address: Address,
-    pub private_key: String,
-    pub supported_chains: Vec<u64>,
     pub min_profit_bps: u16,
-    pub max_exposure: U256,
-    pub reputation_threshold: u64,
+    pub base_risk_bps: u16,
+    pub max_slippage_bps: u16,
+    pub supported_chains: Vec<u64>,
+    pub oracle_addresses: std::collections::HashMap<String, String>,
 }
 
 #[derive(Debug, Clone)]

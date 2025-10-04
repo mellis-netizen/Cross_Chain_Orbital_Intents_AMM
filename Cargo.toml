@@ -24,7 +24,8 @@ members = [
     "core/solver", 
     "core/bridge",
     "contracts/intents",
-    "contracts/orbital-amm"
+    "contracts/orbital-amm",
+    "backend/api"
 ]
 
 [workspace.package]
