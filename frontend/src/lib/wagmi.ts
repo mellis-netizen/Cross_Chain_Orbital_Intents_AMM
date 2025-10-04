@@ -4,7 +4,6 @@ import { MetaMaskConnector } from 'wagmi/connectors/metaMask'
 import { WalletConnectConnector } from 'wagmi/connectors/walletConnect'
 import { InjectedConnector } from 'wagmi/connectors/injected'
 import { CoinbaseWalletConnector } from 'wagmi/connectors/coinbaseWallet'
-import { LedgerConnector } from 'wagmi/connectors/ledger'
 import { HOLESKY_CONFIG } from '@/constants'
 
 // Define supported chains
@@ -145,13 +144,7 @@ const connectors = [
     },
   }),
   
-  // Ledger Hardware Wallet
-  new LedgerConnector({
-    chains,
-    options: {
-      projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || 'orbital-amm-demo',
-    },
-  }),
+  // Note: Ledger connector removed due to compatibility issues with current wagmi version
   
   // Generic Injected Connector (fallback for other wallets)
   new InjectedConnector({
@@ -180,7 +173,6 @@ export const WALLET_CONNECTORS = {
   METAMASK: 'metaMask',
   WALLETCONNECT: 'walletConnect',
   COINBASE: 'coinbaseWallet',
-  LEDGER: 'ledger',
   INJECTED: 'injected',
 } as const
 
@@ -208,13 +200,7 @@ export const getConnectorInfo = (connectorId: string) => {
         description: 'Connect using Coinbase Wallet',
         downloadUrl: 'https://www.coinbase.com/wallet',
       }
-    case WALLET_CONNECTORS.LEDGER:
-      return {
-        name: 'Ledger',
-        icon: '/icons/ledger.svg',
-        description: 'Connect using Ledger hardware wallet',
-        downloadUrl: 'https://www.ledger.com/',
-      }
+    // Ledger case removed - not supported in current wagmi version
     default:
       return {
         name: 'Other Wallet',

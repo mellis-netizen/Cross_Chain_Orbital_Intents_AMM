@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useAccount, useConnect, useDisconnect, useBalance, useNetwork, useSwitchNetwork } from 'wagmi'
+import { useAccount, useConnect, useDisconnect, useBalance as useWagmiBalance, useNetwork, useSwitchNetwork } from 'wagmi'
 import { formatEther } from 'viem'
 import { HOLESKY_CHAIN_ID } from '@/constants'
 import { storage, formatNumber } from '@/utils'
@@ -51,7 +51,7 @@ export function useWallet() {
 }
 
 export function useBalance(address?: string) {
-  const { data, isError, isLoading, refetch } = useBalance({
+  const { data, isError, isLoading, refetch } = useWagmiBalance({
     address: address as `0x${string}`,
     enabled: !!address,
     watch: true,
